@@ -1,0 +1,19 @@
+export const machineColumns = [
+  "serial_no",
+  "machine_name",
+  "purchase_date",
+  "purchase_price",
+  "vendor",
+  "model_no",
+  "warranty_expiration",
+  "manufacturer",
+  "maintenance_schedule",
+  "department",
+  "location",
+  "initial_maintenance_date",
+  "user_manual",
+  "purchase_bill",
+  "notes",
+  "tag_no",
+  "user_allot"
+];
