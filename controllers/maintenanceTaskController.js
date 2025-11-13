@@ -52,8 +52,16 @@ export const createMaintenanceTask = async (req, res) => {
     // ✅ Generate next task number from DB
     const nextTaskNo = await getNextTaskNumber();
 
+    const nowIST = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+    );
     const taskData = {
-      time_stamp: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+      // time_stamp: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+      // time_stamp: new Date().toISOString(),
+      // Generates ISO format with IST correction
+
+time_stamp: nowIST.toISOString(),
+
       task_no: nextTaskNo,
       serial_no: body.serial_no,
       machine_name: body.machine_name,
