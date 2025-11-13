@@ -86,3 +86,18 @@ export const getAllMaintenanceTasks = async () => {
   const result = await pool.query(query);
   return result.rows;
 };
+
+
+
+// 🧮 Fetch last Task_No and return next number
+export const getNextTaskNumber = async () => {
+  const query = `SELECT "Task_No" FROM maintenance_task_assign ORDER BY id DESC LIMIT 1;`;
+  const result = await pool.query(query);
+
+  if (result.rows.length === 0) return "TM-001";
+
+  const lastTask = result.rows[0].Task_No || "TM-000";
+  const lastNum = parseInt(lastTask.replace("TM-", "")) || 0;
+  const nextNum = lastNum + 1;
+  return `TM-${String(nextNum).padStart(3, "0")}`;
+};
