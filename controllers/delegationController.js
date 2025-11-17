@@ -196,9 +196,10 @@ export const fetchDelegation_DoneDataSortByDate = async (req, res) => {
 
 export const insertDelegationDoneAndUpdate = async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
-    console.log("🔄 REQ BODY received:", JSON.stringify(req.body, null, 2));
+    console.log("🔄 Incoming Delegation Submit Body:");
+    console.log(JSON.stringify(req.body, null, 2));
 
     const selectedDataArray = req.body.selectedData;
 
@@ -210,12 +211,12 @@ export const insertDelegationDoneAndUpdate = async (req, res) => {
     const results = [];
 
     for (const task of selectedDataArray) {
-      console.log(`🔄 Processing task ${task.task_id}:`, {
-        hasImageBase64: !!task.image_base64,
-        imageLength: task.image_base64 ? task.image_base64.length : 0,
-        imageStartsWithData: task.image_base64 ? task.image_base64.startsWith('data:image') : false
-      });
+      console.log("\n==============================================");
+      console.log(`🔍 Processing Task ID: ${task.task_id}`);
 
+      /* -----------------------------------------
+         1️⃣ Decide Final Status for Tables
+      ------------------------------------------ */
       const statusForDone =
         task.status === "done"
           ? "completed"
@@ -230,18 +231,20 @@ export const insertDelegationDoneAndUpdate = async (req, res) => {
           ? "extend"
           : null;
 
-      // 🔥 DEBUG: Handle image upload from base64
+      /* -----------------------------------------
+         2️⃣ Handle Image Uploads
+      ------------------------------------------ */
+
       let finalImageUrl = null;
 
       if (task.image_base64 && typeof task.image_base64 === "string") {
         try {
+          // CASE 1: NEW UPLOAD (BASE64)
           if (task.image_base64.startsWith("data:image")) {
-            console.log(`📸 Processing base64 image for task ${task.task_id}`);
-            
+            console.log("📸 Base64 image detected → Uploading to S3...");
+
             const base64Data = task.image_base64.split(";base64,").pop();
             const buffer = Buffer.from(base64Data, "base64");
-
-            console.log(`📊 Image buffer size: ${buffer.length} bytes`);
 
             const fakeFile = {
               originalname: `delegation_${task.task_id}_${Date.now()}.jpg`,
@@ -249,27 +252,38 @@ export const insertDelegationDoneAndUpdate = async (req, res) => {
               mimetype: "image/jpeg",
             };
 
-            // Upload to S3
-            console.log(`🚀 Uploading to S3 for task ${task.task_id}...`);
             finalImageUrl = await uploadToS3(fakeFile);
-            console.log(`✅ S3 Upload successful: ${finalImageUrl}`);
-          } else {
-            // Already S3 URL or old string
-            console.log(`ℹ️ Using existing image URL for task ${task.task_id}`);
+            console.log("✅ Uploaded to S3:", finalImageUrl);
+          }
+
+          // CASE 2: ALREADY S3 URL
+          else if (task.image_base64.startsWith("http")) {
+            console.log("ℹ Existing S3 image detected → Keeping original URL");
             finalImageUrl = task.image_base64;
           }
+
+          // CASE 3: Invalid image string
+          else {
+            console.log("⚠ Invalid image string → Skipping image");
+            finalImageUrl = null;
+          }
+
         } catch (imageError) {
-          console.error(`❌ Image processing failed for task ${task.task_id}:`, imageError);
-          // Continue without image rather than failing the entire request
-          finalImageUrl = null;
+          console.error("❌ Image processing error:", imageError);
+          finalImageUrl = null; // continue without breaking
         }
+
       } else {
-        console.log(`❌ No image_base64 found for task ${task.task_id}`);
+        console.log("❌ No image_base64 sent");
       }
 
-      console.log(`📝 Final image URL for task ${task.task_id}:`, finalImageUrl);
+      console.log(`📝 Final Image URL: ${finalImageUrl}`);
 
-      /* INSERT INTO delegation_done */
+
+      /* -----------------------------------------
+         3️⃣ INSERT into delegation_done
+      ------------------------------------------ */
+
       const insertQuery = `
         INSERT INTO delegation_done
         (task_id, status, next_extend_date, reason, image_url, name, task_description, given_by)
@@ -288,10 +302,15 @@ export const insertDelegationDoneAndUpdate = async (req, res) => {
         task.given_by
       ];
 
-      console.log(`💾 Inserting into delegation_done:`, insertValues);
+      console.log("💾 INSERT delegation_done:", insertValues);
+
       const inserted = await client.query(insertQuery, insertValues);
 
-      /* UPDATE delegation */
+
+      /* -----------------------------------------
+         4️⃣ UPDATE delegation (main table)
+      ------------------------------------------ */
+
       const updateQuery = `
         UPDATE delegation
         SET status = $1,
@@ -312,25 +331,31 @@ export const insertDelegationDoneAndUpdate = async (req, res) => {
         task.task_id
       ];
 
-      console.log(`💾 Updating delegation:`, updateValues);
+      console.log("💾 UPDATE delegation:", updateValues);
+
       const updated = await client.query(updateQuery, updateValues);
 
       results.push({
-        done: inserted.rows[0],
-        updated: updated.rows[0]
+        saved_to_done_table: inserted.rows[0],
+        updated_in_main_table: updated.rows[0],
       });
     }
 
+    /* -----------------------------------------
+       5️⃣ COMMIT TRANSACTION
+    ------------------------------------------ */
     await client.query("COMMIT");
-    console.log("✅ All tasks processed successfully");
-    return res.json(results);
+    console.log("✅ ALL TASKS SAVED SUCCESSFULLY");
+
+    return res.json({ success: true, results });
 
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("❌ Insert error:", err);
+    console.error("❌ Transaction Failed:", err);
     return res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 };
+
 

@@ -7,11 +7,12 @@ export const getDashboardData = async (req, res) => {
     const {
       dashboardType,
       staffFilter,
-      page,
-      limit,
+      page = 1,
+      limit = 50,
       departmentFilter,
       role,
       username,
+      taskView = "recent"   // 👈 important
     } = req.query;
 
     const table = dashboardType;
@@ -19,24 +20,70 @@ export const getDashboardData = async (req, res) => {
 
     let query = `SELECT * FROM ${table} WHERE 1=1`;
 
-    // ROLE FILTER
+    // ---------------------------
+    // ROLE FILTER (USER)
+    // ---------------------------
     if (role === "user" && username) {
       query += ` AND LOWER(name) = LOWER('${username}')`;
     }
 
-    // STAFF FILTER (admin only)
+    // ---------------------------
+    // ADMIN STAFF FILTER
+    // ---------------------------
     if (role === "admin" && staffFilter !== "all") {
       query += ` AND LOWER(name) = LOWER('${staffFilter}')`;
     }
 
-    // DEPARTMENT FILTER (checklist only)
+    // ---------------------------
+    // DEPARTMENT FILTER
+    // ---------------------------
     if (dashboardType === "checklist" && departmentFilter !== "all") {
       query += ` AND LOWER(department) = LOWER('${departmentFilter}')`;
     }
 
-    // 🔥 MAIN FIX
-    // ALWAYS fetch all tasks TILL TODAY (not only recent/upcoming)
-    query += ` AND task_start_date <= NOW()`;
+    // ---------------------------
+    // TASK VIEW FILTERS
+    // ---------------------------
+    if (taskView === "recent") {
+      // TODAY TASKS
+      query += `
+        AND task_start_date >= CURRENT_DATE
+        AND task_start_date < CURRENT_DATE + INTERVAL '1 day'
+      `;
+
+      if (dashboardType === "checklist") {
+        query += ` AND (status IS NULL OR status <> 'yes')`;
+      }
+    }
+
+    else if (taskView === "upcoming") {
+      // TOMORROW TASKS
+      query += `
+        AND task_start_date >= CURRENT_DATE + INTERVAL '1 day'
+        AND task_start_date < CURRENT_DATE + INTERVAL '2 day'
+      `;
+    }
+
+    else if (taskView === "overdue") {
+      // PAST DUE + NOT COMPLETED
+      query += `
+        AND task_start_date < CURRENT_DATE
+      `;
+
+      if (dashboardType === "checklist") {
+        query += ` AND (status IS NULL OR status <> 'yes')`;
+      } else {
+        query += ` AND submission_date IS NULL`;
+      }
+    }
+
+    // ---------------------------
+    // DEFAULT OLD LOGIC (ALL TASKS TILL TODAY)
+    // when taskView == "all"
+    // ---------------------------
+    else {
+      query += ` AND task_start_date <= NOW()`;
+    }
 
     // ORDER + PAGINATION
     query += ` ORDER BY task_start_date DESC LIMIT ${limit} OFFSET ${offset}`;
@@ -45,11 +92,13 @@ export const getDashboardData = async (req, res) => {
 
     const result = await pool.query(query);
     res.json(result.rows);
+
   } catch (err) {
     console.error("ERROR in getDashboardData:", err);
     res.status(500).send("Error fetching dashboard data");
   }
 };
+
 
 
 
