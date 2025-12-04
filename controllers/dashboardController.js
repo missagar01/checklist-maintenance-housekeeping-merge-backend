@@ -64,7 +64,8 @@ export const getDashboardData = async (req, res) => {
 
       // For checklist: status is enum 'yes'/'no', compare directly
       if (dashboardType === "checklist") {
-        query += ` AND (status IS NULL OR status <> 'yes')`;
+        // query += ` AND (status IS NULL OR status <> 'yes')`;
+        query += ` AND submission_date IS NULL`;
       }
     }
     else if (taskView === "upcoming") {
@@ -75,7 +76,8 @@ export const getDashboardData = async (req, res) => {
       
       // For checklist: exclude completed tasks
       if (dashboardType === "checklist") {
-        query += ` AND (status IS NULL OR status <> 'yes')`;
+        // query += ` AND (status IS NULL OR status <> 'yes')`;
+        query += ` AND submission_date IS NULL`;
       }
     }
     else if (taskView === "overdue") {
@@ -85,7 +87,8 @@ export const getDashboardData = async (req, res) => {
       `;
 
       if (dashboardType === "checklist") {
-        query += ` AND (status IS NULL OR status <> 'yes')`;
+        // query += ` AND (status IS NULL OR status <> 'yes')`;
+        query += ` AND submission_date IS NULL`;
       } else {
         query += ` AND submission_date IS NULL`;
       }
@@ -186,34 +189,75 @@ export const getCompletedTask = async (req, res) => {
   }
 };
 
+// export const getPendingTask = async (req, res) => {
+//   try {
+//     const { dashboardType, staffFilter, departmentFilter, role, username } = req.query;
+
+//     const table = dashboardType;
+    
+//     // Get current month range
+//     const { firstDayStr, currentDayStr } = getCurrentMonthRange();
+
+//     let query = `
+//       SELECT COUNT(*) AS count
+//       FROM ${table}
+//       WHERE task_start_date >= '${firstDayStr} 00:00:00'
+//       AND task_start_date <= '${currentDayStr} 23:59:59'
+//       AND submission_date IS NULL
+//     `;
+
+//     if (dashboardType === "checklist") {
+//       query += ` AND (status IS NULL OR status <> 'yes') `;
+//     }
+
+//     if (role === "user" && username) query += ` AND LOWER(name)=LOWER('${username}')`;
+//     if (role === "admin" && staffFilter !== "all") query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+//     if (dashboardType === "checklist" && departmentFilter !== "all")
+//       query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
+
+//     const result = await pool.query(query);
+//     res.json(Number(result.rows[0].count));
+//   } catch (err) {
+//     console.error("PENDING ERROR:", err.message);
+//     res.status(500).json({ error: "Error fetching pending tasks" });
+//   }
+// };
+
+
 export const getPendingTask = async (req, res) => {
   try {
     const { dashboardType, staffFilter, departmentFilter, role, username } = req.query;
 
     const table = dashboardType;
-    
-    // Get current month range
-    const { firstDayStr, currentDayStr } = getCurrentMonthRange();
 
     let query = `
       SELECT COUNT(*) AS count
       FROM ${table}
-      WHERE task_start_date >= '${firstDayStr} 00:00:00'
-      AND task_start_date <= '${currentDayStr} 23:59:59'
-      AND submission_date IS NULL
+      WHERE task_start_date::date = CURRENT_DATE
     `;
 
+    // Checklist uses enum yes/no → pending = NOT yes
     if (dashboardType === "checklist") {
       query += ` AND (status IS NULL OR status <> 'yes') `;
+    } else {
+      // Delegation pending = no submission
+      query += ` AND submission_date IS NULL `;
     }
 
-    if (role === "user" && username) query += ` AND LOWER(name)=LOWER('${username}')`;
-    if (role === "admin" && staffFilter !== "all") query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+    // Role filter
+    if (role === "user" && username)
+      query += ` AND LOWER(name)=LOWER('${username}')`;
+
+    if (role === "admin" && staffFilter !== "all")
+      query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+
+    // Department filter for checklist
     if (dashboardType === "checklist" && departmentFilter !== "all")
       query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
 
     const result = await pool.query(query);
     res.json(Number(result.rows[0].count));
+
   } catch (err) {
     console.error("PENDING ERROR:", err.message);
     res.status(500).json({ error: "Error fetching pending tasks" });
@@ -263,35 +307,44 @@ export const getOverdueTask = async (req, res) => {
     const { dashboardType, staffFilter, departmentFilter, role, username } = req.query;
 
     const table = dashboardType;
-    
-    // Get current month range
+
+    // Get month range
     const { firstDayStr, currentDayStr } = getCurrentMonthRange();
 
     let query = `
       SELECT COUNT(*) AS count
       FROM ${table}
       WHERE task_start_date >= '${firstDayStr} 00:00:00'
-      AND task_start_date <= '${currentDayStr} 23:59:59'
-      AND task_start_date < NOW()
+      AND task_start_date < CURRENT_DATE
       AND submission_date IS NULL
     `;
 
+    // Checklist → pending status logic (same as delegation now)
     if (dashboardType === "checklist") {
       query += ` AND (status IS NULL OR status <> 'yes') `;
     }
 
-    if (role === "user" && username) query += ` AND LOWER(name)=LOWER('${username}')`;
-    if (role === "admin" && staffFilter !== "all") query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+    // Role filter
+    if (role === "user" && username)
+      query += ` AND LOWER(name)=LOWER('${username}')`;
+
+    if (role === "admin" && staffFilter !== "all")
+      query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+
+    // Department filter
     if (dashboardType === "checklist" && departmentFilter !== "all")
       query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
 
     const result = await pool.query(query);
     res.json(Number(result.rows[0].count));
+
   } catch (err) {
     console.error("OVERDUE ERROR:", err.message);
     res.status(500).json({ error: "Error fetching overdue tasks" });
   }
 };
+
+
 
 export const getUniqueDepartments = async (req, res) => {
   try {
@@ -504,7 +557,8 @@ export const getDashboardDataCount = async (req, res) => {
       `;
 
       if (dashboardType === "checklist") {
-        query += ` AND (status IS NULL OR status <> 'yes')`;
+        // query += ` AND (status IS NULL OR status <> 'yes')`;
+        query += ` AND submission_date IS NULL`;
       }
     } 
     else if (taskView === "upcoming") {
@@ -519,7 +573,8 @@ export const getDashboardDataCount = async (req, res) => {
       `;
 
       if (dashboardType === "checklist") {
-        query += ` AND (status IS NULL OR status <> 'yes')`;
+        // query += ` AND (status IS NULL OR status <> 'yes')`;
+        query += ` AND submission_date IS NULL`;
       }
     }
 
