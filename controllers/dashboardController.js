@@ -227,20 +227,23 @@ export const getCompletedTask = async (req, res) => {
 export const getPendingTask = async (req, res) => {
   try {
     const { dashboardType, staffFilter, departmentFilter, role, username } = req.query;
-
     const table = dashboardType;
+
+    const { firstDayStr, currentDayStr } = getCurrentMonthRange();
 
     let query = `
       SELECT COUNT(*) AS count
       FROM ${table}
-      WHERE task_start_date::date = CURRENT_DATE
+      WHERE task_start_date >= '${firstDayStr} 00:00:00'
+      AND task_start_date <= '${currentDayStr} 23:59:59'
+      AND task_start_date::date = CURRENT_DATE
     `;
 
-    // Checklist uses enum yes/no → pending = NOT yes
+    // Checklist → pending = NOT yes
     if (dashboardType === "checklist") {
-      query += ` AND (status IS NULL OR status <> 'yes') `;
+      // query += ` AND (status IS NULL OR status <> 'yes') `;
+      query += ` AND submission_date IS NULL `;
     } else {
-      // Delegation pending = no submission
       query += ` AND submission_date IS NULL `;
     }
 
@@ -251,7 +254,7 @@ export const getPendingTask = async (req, res) => {
     if (role === "admin" && staffFilter !== "all")
       query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
 
-    // Department filter for checklist
+    // Department filter
     if (dashboardType === "checklist" && departmentFilter !== "all")
       query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
 
@@ -263,6 +266,7 @@ export const getPendingTask = async (req, res) => {
     res.status(500).json({ error: "Error fetching pending tasks" });
   }
 };
+
 
 export const getNotDoneTask = async (req, res) => {
   try {
