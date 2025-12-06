@@ -1,59 +1,60 @@
 import pool from "../config/db.js";
 
 // ------------------------ FETCH CHECKLIST ------------------------
-export const fetchChecklist = async (page = 0, pageSize = 50, nameFilter = '') => {
+export const fetchChecklist = async (
+  page = 0,
+  pageSize = 50,
+  nameFilter = "",
+  startDate,
+  endDate
+) => {
   try {
-    const start = page * pageSize;
-    const end = start + pageSize - 1;
+    const offset = page * pageSize;
+    const filters = ["submission_date IS NULL"];
+    const params = [];
+    let paramIndex = 1;
 
-    // Step 1: Get unique task_descriptions
-    let uniqueQuery = `
-      SELECT task_description 
-      FROM checklist 
-      WHERE submission_date IS NULL
-      AND task_description IS NOT NULL
-    `;
+    const hasDateRange = startDate && endDate;
+    if (hasDateRange) {
+      filters.push(`task_start_date >= $${paramIndex++}`);
+      params.push(`${startDate} 00:00:00`);
+      filters.push(`task_start_date <= $${paramIndex++}`);
+      params.push(`${endDate} 23:59:59`);
+    } else {
+      filters.push("task_start_date::date = CURRENT_DATE");
+    }
 
     if (nameFilter) {
-      uniqueQuery += ` AND name = '${nameFilter}' `;
+      filters.push(`LOWER(name) = LOWER($${paramIndex++})`);
+      params.push(nameFilter);
     }
 
-    const uniqueRes = await pool.query(uniqueQuery);
+    const whereClause = filters.join(" AND ");
 
-    // Unique descriptions
-    const seen = new Set();
-    const uniqueDescriptions = uniqueRes.rows
-      .map(r => r.task_description)
-      .filter(desc => {
-        if (!desc || seen.has(desc)) return false;
-        seen.add(desc);
-        return true;
-      });
-
-    const paginated = uniqueDescriptions.slice(start, end + 1);
-
-    if (paginated.length === 0) {
-      return { data: [], total: uniqueDescriptions.length };
-    }
-
-    // Step 2: fetch real rows
-    let dataQuery = `
-      SELECT * FROM checklist
-      WHERE task_description = ANY($1)
-      AND submission_date IS NULL
+    const dataQuery = `
+      SELECT *
+      FROM checklist
+      WHERE ${whereClause}
       ORDER BY task_start_date ASC
+      LIMIT $${paramIndex++}
+      OFFSET $${paramIndex}
     `;
 
-    const dataRes = await pool.query(dataQuery, [paginated]);
+    const dataParams = [...params, pageSize, offset];
 
-    const finalSeen = new Set();
-    const finalData = dataRes.rows.filter(row => {
-      if (finalSeen.has(row.task_description)) return false;
-      finalSeen.add(row.task_description);
-      return true;
-    });
+    const countQuery = `
+      SELECT COUNT(*) AS count
+      FROM checklist
+      WHERE ${whereClause}
+    `;
 
-    return { data: finalData, total: uniqueDescriptions.length };
+    const [dataRes, countRes] = await Promise.all([
+      pool.query(dataQuery, dataParams),
+      pool.query(countQuery, params),
+    ]);
+
+    const total = parseInt(countRes.rows[0]?.count ?? 0, 10);
+    return { data: dataRes.rows, total };
   } catch (err) {
     console.log(err);
     return { data: [], total: 0 };
@@ -61,56 +62,61 @@ export const fetchChecklist = async (page = 0, pageSize = 50, nameFilter = '') =
 };
 
 
-export const fetchDelegation = async (page = 0, pageSize = 50, nameFilter = '') => {
+export const fetchDelegation = async (
+  page = 0,
+  pageSize = 50,
+  nameFilter = "",
+  startDate,
+  endDate
+) => {
   try {
-    const start = page * pageSize;
-    const end = start + pageSize - 1;
+    const offset = page * pageSize;
+    const filters = ["submission_date IS NULL"];
+    const params = [];
+    let paramIndex = 1;
 
-    let uniqueQuery = `
-      SELECT task_description
-      FROM delegation
-      WHERE submission_date IS NULL
-      AND task_description IS NOT NULL
-    `;
+    const hasDateRange = startDate && endDate;
+    if (hasDateRange) {
+      filters.push(`task_start_date >= $${paramIndex++}`);
+      params.push(`${startDate} 00:00:00`);
+      filters.push(`task_start_date <= $${paramIndex++}`);
+      params.push(`${endDate} 23:59:59`);
+    } else {
+      // Default to today's tasks when no explicit range is provided
+      filters.push("task_start_date::date = CURRENT_DATE");
+    }
 
     if (nameFilter) {
-      uniqueQuery += ` AND name = '${nameFilter}' `;
+      filters.push(`LOWER(name) = LOWER($${paramIndex++})`);
+      params.push(nameFilter);
     }
 
-    const uniqueRes = await pool.query(uniqueQuery);
+    const whereClause = filters.join(" AND ");
 
-    const seen = new Set();
-    const uniqueDescriptions = uniqueRes.rows
-      .map(r => r.task_description)
-      .filter(desc => {
-        if (!desc || seen.has(desc)) return false;
-        seen.add(desc);
-        return true;
-      });
-
-    const paginated = uniqueDescriptions.slice(start, end + 1);
-
-    if (paginated.length === 0) {
-      return { data: [], total: uniqueDescriptions.length };
-    }
-
-    let dataQuery = `
-      SELECT * FROM delegation
-      WHERE task_description = ANY($1)
-      AND submission_date IS NULL
-      ORDER BY task_id ASC
+    const dataQuery = `
+      SELECT *
+      FROM delegation
+      WHERE ${whereClause}
+      ORDER BY task_start_date ASC
+      LIMIT $${paramIndex++}
+      OFFSET $${paramIndex}
     `;
 
-    const dataRes = await pool.query(dataQuery, [paginated]);
+    const dataParams = [...params, pageSize, offset];
 
-    const finalSeen = new Set();
-    const finalData = dataRes.rows.filter(row => {
-      if (finalSeen.has(row.task_description)) return false;
-      finalSeen.add(row.task_description);
-      return true;
-    });
+    const countQuery = `
+      SELECT COUNT(*) AS count
+      FROM delegation
+      WHERE ${whereClause}
+    `;
 
-    return { data: finalData, total: uniqueDescriptions.length };
+    const [dataRes, countRes] = await Promise.all([
+      pool.query(dataQuery, dataParams),
+      pool.query(countQuery, params),
+    ]);
+
+    const total = parseInt(countRes.rows[0]?.count ?? 0, 10);
+    return { data: dataRes.rows, total };
   } catch (err) {
     console.log(err);
     return { data: [], total: 0 };
@@ -187,5 +193,27 @@ export const updateChecklistTask = async (updatedTask, originalTask) => {
   } catch (err) {
     console.log(err);
     throw err;
+  }
+};
+
+// ------------------------ FETCH USERS (UNIQUE NAMES) ------------------------
+export const fetchUsers = async () => {
+  try {
+    const sql = `
+      SELECT name
+      FROM (
+        SELECT DISTINCT name FROM checklist WHERE name IS NOT NULL AND name <> ''
+        UNION
+        SELECT DISTINCT name FROM delegation WHERE name IS NOT NULL AND name <> ''
+      ) t
+      ORDER BY LOWER(name)
+    `;
+
+    const { rows } = await pool.query(sql);
+    // Normalize shape similar to existing frontend expectation (user_name)
+    return rows.map((r) => ({ user_name: r.name }));
+  } catch (err) {
+    console.log(err);
+    return [];
   }
 };

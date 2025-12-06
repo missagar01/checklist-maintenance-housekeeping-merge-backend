@@ -229,23 +229,13 @@ export const getPendingTask = async (req, res) => {
     const { dashboardType, staffFilter, departmentFilter, role, username } = req.query;
     const table = dashboardType;
 
-    const { firstDayStr, currentDayStr } = getCurrentMonthRange();
-
+    // Align with "recent" list logic: only today's tasks that are not submitted
     let query = `
       SELECT COUNT(*) AS count
       FROM ${table}
-      WHERE task_start_date >= '${firstDayStr} 00:00:00'
-      AND task_start_date <= '${currentDayStr} 23:59:59'
-      AND task_start_date::date = CURRENT_DATE
+      WHERE task_start_date::date = CURRENT_DATE
+      AND submission_date IS NULL
     `;
-
-    // Checklist → pending = NOT yes
-    if (dashboardType === "checklist") {
-      // query += ` AND (status IS NULL OR status <> 'yes') `;
-      query += ` AND submission_date IS NULL `;
-    } else {
-      query += ` AND submission_date IS NULL `;
-    }
 
     // Role filter
     if (role === "user" && username)
@@ -311,35 +301,35 @@ export const getOverdueTask = async (req, res) => {
     const { dashboardType, staffFilter, departmentFilter, role, username } = req.query;
 
     const table = dashboardType;
+    const params = [];
+    let idx = 1;
 
-    // Get month range
-    const { firstDayStr, currentDayStr } = getCurrentMonthRange();
-
+    // Align with task list overdue view: before today and not submitted
     let query = `
       SELECT COUNT(*) AS count
       FROM ${table}
-      WHERE task_start_date >= '${firstDayStr} 00:00:00'
-      AND task_start_date < CURRENT_DATE
+      WHERE task_start_date::date < CURRENT_DATE
       AND submission_date IS NULL
     `;
 
-    // Checklist → pending status logic (same as delegation now)
-    if (dashboardType === "checklist") {
-      query += ` AND (status IS NULL OR status <> 'yes') `;
+    // Role filter
+    if (role === "user" && username) {
+      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      params.push(username);
     }
 
-    // Role filter
-    if (role === "user" && username)
-      query += ` AND LOWER(name)=LOWER('${username}')`;
-
-    if (role === "admin" && staffFilter !== "all")
-      query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+    if (role === "admin" && staffFilter !== "all") {
+      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      params.push(staffFilter);
+    }
 
     // Department filter
-    if (dashboardType === "checklist" && departmentFilter !== "all")
-      query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
+    if (dashboardType === "checklist" && departmentFilter !== "all") {
+      query += ` AND LOWER(department)=LOWER($${idx++})`;
+      params.push(departmentFilter);
+    }
 
-    const result = await pool.query(query);
+    const result = await pool.query(query, params);
     res.json(Number(result.rows[0].count));
 
   } catch (err) {
@@ -390,7 +380,7 @@ export const getStaffByDepartment = async (req, res) => {
 
 export const getChecklistByDateRange = async (req, res) => {
   try {
-    const { startDate, endDate, staffFilter, departmentFilter } = req.query;
+    const { startDate, endDate, staffFilter = "all", departmentFilter = "all" } = req.query;
 
     // If no specific date range is provided, default to current month
     let start = startDate;
@@ -402,21 +392,32 @@ export const getChecklistByDateRange = async (req, res) => {
       end = currentDayStr;
     }
 
+    // Build parameterized query to avoid string-based date comparisons
+    // Compare on date-only to avoid timezone boundary misses
+    const params = [start, end];
+    let idx = 3;
+
     let query = `
       SELECT * FROM checklist
-      WHERE task_start_date BETWEEN '${start} 00:00:00'
-      AND '${end} 23:59:59'
+      WHERE task_start_date::date >= $1::date
+      AND task_start_date::date <= $2::date
     `;
 
-    if (staffFilter !== "all") {
-      query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+    if (staffFilter && staffFilter !== "all") {
+      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      params.push(staffFilter);
     }
 
-    if (departmentFilter !== "all") {
-      query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
+    if (departmentFilter && departmentFilter !== "all") {
+      query += ` AND LOWER(department)=LOWER($${idx++})`;
+      params.push(departmentFilter);
     }
 
-    const result = await pool.query(query);
+    // Keep the payload bounded to avoid overwhelming the client
+    query += " ORDER BY task_start_date ASC LIMIT 5000";
+
+    const result = await pool.query(query, params);
+    console.log("DATE RANGE QUERY =>", query, "PARAMS =>", params, "ROWS =>", result.rowCount);
     res.json(result.rows);
   } catch (err) {
     console.error("CHECKLIST DATE RANGE ERROR:", err.message);
@@ -426,7 +427,7 @@ export const getChecklistByDateRange = async (req, res) => {
 
 export const getChecklistStatsByDate = async (req, res) => {
   try {
-    const { startDate, endDate, staffFilter, departmentFilter } = req.query;
+    const { startDate, endDate, staffFilter = "all", departmentFilter = "all" } = req.query;
 
     // If no date range provided, default to current month
     let start = startDate;
@@ -438,31 +439,51 @@ export const getChecklistStatsByDate = async (req, res) => {
       end = currentDayStr;
     }
 
+    // Compare on date-only to avoid timezone boundary misses
+    const params = [start, end];
+    let idx = 3;
+
     let query = `
-      SELECT * FROM checklist
-      WHERE task_start_date BETWEEN '${start} 00:00:00'
-      AND '${end} 23:59:59'
+      SELECT
+        COUNT(*) AS total_tasks,
+        SUM(CASE WHEN LOWER(status::text) = 'yes' THEN 1 ELSE 0 END) AS completed_tasks,
+        SUM(CASE WHEN LOWER(status::text) = 'no' THEN 1 ELSE 0 END) AS not_done_tasks,
+        SUM(
+          CASE 
+            WHEN (status IS NULL OR LOWER(status::text) <> 'yes')
+              AND task_start_date::date < CURRENT_DATE
+            THEN 1 ELSE 0 END
+        ) AS overdue_tasks
+      FROM checklist
+      WHERE task_start_date::date >= $1::date
+      AND task_start_date::date <= $2::date
     `;
 
-    if (staffFilter !== "all") query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
-    if (departmentFilter !== "all") query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
+    if (staffFilter && staffFilter !== "all") {
+      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      params.push(staffFilter);
+    }
+    if (departmentFilter && departmentFilter !== "all") {
+      query += ` AND LOWER(department)=LOWER($${idx++})`;
+      params.push(departmentFilter);
+    }
 
-    const result = await pool.query(query);
-    const data = result.rows;
+    const result = await pool.query(query, params);
+    console.log("DATE RANGE STATS QUERY =>", query, "PARAMS =>", params, "ROWS =>", result.rowCount);
 
-    const totalTasks = data.length;
-    const completedTasks = data.filter(t => t.status === "Yes").length;
-    const overdueTasks = data.filter(t =>
-      (!t.status || t.status !== "Yes") &&
-      new Date(t.task_start_date) < new Date(today)
-    ).length;
-    const pendingTasks = totalTasks - completedTasks;
+    const row = result.rows[0] || {};
+    const totalTasks = Number(row.total_tasks || 0);
+    const completedTasks = Number(row.completed_tasks || 0);
+    const overdueTasks = Number(row.overdue_tasks || 0);
+    const notDoneTasks = Number(row.not_done_tasks || 0);
+    const pendingTasks = Math.max(totalTasks - completedTasks, 0);
 
     res.json({
       totalTasks,
       completedTasks,
       pendingTasks,
       overdueTasks,
+      notDone: notDoneTasks,
       completionRate: totalTasks > 0 ? (completedTasks / totalTasks * 100).toFixed(1) : 0
     });
   } catch (err) {
@@ -527,16 +548,12 @@ export const getDashboardDataCount = async (req, res) => {
 
     const role = req.query.role;
     const username = req.query.username;
-    
-    // Get current month range
-    const { firstDayStr, currentDayStr } = getCurrentMonthRange();
 
-    // Base query with current month filter
+    // Base query (no month cap) so it matches list view filters exactly
     let query = `
       SELECT COUNT(*) AS count
       FROM ${dashboardType}
-      WHERE task_start_date >= '${firstDayStr} 00:00:00'
-      AND task_start_date <= '${currentDayStr} 23:59:59'
+      WHERE 1=1
     `;
 
     // ROLE FILTER (USER)
@@ -569,6 +586,10 @@ export const getDashboardDataCount = async (req, res) => {
       query += `
         AND DATE(task_start_date) = CURRENT_DATE + INTERVAL '1 day'
       `;
+
+      if (dashboardType === "checklist") {
+        query += ` AND submission_date IS NULL`;
+      }
     }
     else if (taskView === "overdue") {
       query += `
@@ -619,46 +640,53 @@ export const getChecklistDateRangeCount = async (req, res) => {
       end = currentDayStr;
     }
 
+    // Compare on date-only to avoid timezone boundary misses
+    const params = [start, end];
+    let idx = 3;
+
     let query = `
       SELECT COUNT(*) AS count
       FROM checklist
-      WHERE task_start_date >= '${start} 00:00:00'
-      AND task_start_date <= '${end} 23:59:59'
+      WHERE task_start_date::date >= $1::date
+      AND task_start_date::date <= $2::date
     `;
 
     // ROLE FILTER (USER)
     if (role === "user" && username) {
-      query += ` AND LOWER(name) = LOWER('${username}')`;
+      query += ` AND LOWER(name) = LOWER($${idx++})`;
+      params.push(username);
     }
 
     // ADMIN STAFF FILTER
     if (role === "admin" && staffFilter !== "all") {
-      query += ` AND LOWER(name) = LOWER('${staffFilter}')`;
+      query += ` AND LOWER(name) = LOWER($${idx++})`;
+      params.push(staffFilter);
     }
 
     // DEPARTMENT FILTER
     if (departmentFilter !== "all") {
-      query += ` AND LOWER(department) = LOWER('${departmentFilter}')`;
+      query += ` AND LOWER(department) = LOWER($${idx++})`;
+      params.push(departmentFilter);
     }
 
     // STATUS FILTER
     switch (statusFilter) {
       case "completed":
-        query += ` AND status = 'Yes'`;
+        query += ` AND LOWER(status::text) = 'yes'`;
         break;
       case "pending":
-        query += ` AND (status IS NULL OR status <> 'Yes')`;
+        query += ` AND (status IS NULL OR LOWER(status::text) <> 'yes')`;
         break;
       case "overdue":
         query += ` 
-          AND (status IS NULL OR status <> 'Yes')
+          AND (status IS NULL OR LOWER(status::text) <> 'yes')
           AND submission_date IS NULL
           AND task_start_date < CURRENT_DATE
         `;
         break;
     }
 
-    const result = await pool.query(query);
+    const result = await pool.query(query, params);
     const count = Number(result.rows[0].count || 0);
     
     res.json(count);

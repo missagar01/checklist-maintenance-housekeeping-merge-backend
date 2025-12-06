@@ -4,18 +4,31 @@ import {
   fetchDelegation,
   deleteChecklistTasks,
   deleteDelegationTasks,
-  updateChecklistTask
+  updateChecklistTask,
+  fetchUsers
 } from "../controllers/quickTaskController.js";
 
 const router = express.Router();
 
 router.post("/checklist", async (req, res) => {
-  const result = await fetchChecklist(req.body.page, req.body.pageSize, req.body.nameFilter);
+  const result = await fetchChecklist(
+    req.body.page,
+    req.body.pageSize,
+    req.body.nameFilter,
+    req.body.startDate,
+    req.body.endDate
+  );
   res.json(result);
 });
 
 router.post("/delegation", async (req, res) => {
-  const result = await fetchDelegation(req.body.page, req.body.pageSize, req.body.nameFilter);
+  const result = await fetchDelegation(
+    req.body.page,
+    req.body.pageSize,
+    req.body.nameFilter,
+    req.body.startDate,
+    req.body.endDate
+  );
   res.json(result);
 });
 
@@ -31,6 +44,11 @@ router.post("/delete-delegation", async (req, res) => {
 
 router.post("/update-checklist", async (req, res) => {
   const result = await updateChecklistTask(req.body.updatedTask, req.body.originalTask);
+  res.json(result);
+});
+
+router.get("/users", async (req, res) => {
+  const result = await fetchUsers();
   res.json(result);
 });
 
