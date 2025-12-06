@@ -151,7 +151,7 @@ export const updateChecklist = async (req, res) => {
         const sql = `
           UPDATE checklist
           SET 
-            status = $1::enable_reminder,
+           status = $1,
             remark = $2,
             submission_date = NOW(),
             image = $3

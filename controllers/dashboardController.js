@@ -1,6 +1,10 @@
 import pool from "../config/db.js";
 
 const today = new Date().toISOString().split("T")[0];
+const logQueries = process.env.LOG_QUERIES === "true";
+const log = (...args) => {
+  if (logQueries) console.log(...args);
+};
 
 // Helper function to get current month range
 const getCurrentMonthRange = () => {
@@ -104,7 +108,7 @@ export const getDashboardData = async (req, res) => {
     // ORDER + PAGINATION
     query += ` ORDER BY task_start_date ASC LIMIT ${limit} OFFSET ${offset}`;
 
-    console.log("FINAL QUERY =>", query);
+    log("FINAL QUERY =>", query);
 
     const result = await pool.query(query);
     res.json(result.rows);
@@ -417,7 +421,7 @@ export const getChecklistByDateRange = async (req, res) => {
     query += " ORDER BY task_start_date ASC LIMIT 5000";
 
     const result = await pool.query(query, params);
-    console.log("DATE RANGE QUERY =>", query, "PARAMS =>", params, "ROWS =>", result.rowCount);
+    log("DATE RANGE QUERY =>", query, "PARAMS =>", params, "ROWS =>", result.rowCount);
     res.json(result.rows);
   } catch (err) {
     console.error("CHECKLIST DATE RANGE ERROR:", err.message);
@@ -469,7 +473,7 @@ export const getChecklistStatsByDate = async (req, res) => {
     }
 
     const result = await pool.query(query, params);
-    console.log("DATE RANGE STATS QUERY =>", query, "PARAMS =>", params, "ROWS =>", result.rowCount);
+    log("DATE RANGE STATS QUERY =>", query, "PARAMS =>", params, "ROWS =>", result.rowCount);
 
     const row = result.rows[0] || {};
     const totalTasks = Number(row.total_tasks || 0);
@@ -606,8 +610,8 @@ export const getDashboardDataCount = async (req, res) => {
     const result = await pool.query(query);
     const count = Number(result.rows[0].count || 0);
     
-    console.log("COUNT QUERY for", taskView, "=>", query);
-    console.log("COUNT RESULT:", count);
+    log("COUNT QUERY for", taskView, "=>", query);
+    log("COUNT RESULT:", count);
     
     res.json(count);
 
