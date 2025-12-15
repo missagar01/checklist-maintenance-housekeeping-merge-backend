@@ -1,5 +1,5 @@
 // controllers/settingController.js
-import pool from "../config/db.js";
+import { pool } from "../config/db.js";
 
 /*******************************
  * 1) GET USERS

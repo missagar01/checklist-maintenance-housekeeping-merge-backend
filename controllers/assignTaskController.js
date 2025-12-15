@@ -1,4 +1,4 @@
-import pool from "../config/db.js";
+import { pool } from "../config/db.js";
 import { uploadToS3 } from "../middleware/s3Upload.js";
 
 // 1️⃣ Departments

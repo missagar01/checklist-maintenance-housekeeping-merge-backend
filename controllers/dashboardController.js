@@ -1,4 +1,4 @@
-import pool from "../config/db.js";
+import { pool } from "../config/db.js";
 
 const today = new Date().toISOString().split("T")[0];
 const logQueries = process.env.LOG_QUERIES === "true";

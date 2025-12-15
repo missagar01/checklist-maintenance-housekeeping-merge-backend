@@ -52,3 +52,30 @@ export const uploadToS3 = async (file) => {
 
 
 export default upload;
+
+
+export const uploadMaintenanceImageToS3 = async (file) => {
+  try {
+    const bucket = process.env.MAINTENANCE_BUCKET_NAME; // new-machine-image
+    if (!bucket) throw new Error("MAINTENANCE_BUCKET_NAME is missing");
+
+    const params = {
+      Bucket: bucket,
+      Key: `maintenance/${Date.now()}_${file.originalname}`,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+    };
+
+    const uploadTask = new Upload({
+      client: s3,
+      params,
+    });
+
+    const result = await uploadTask.done();
+
+    return `https://${bucket}.s3.amazonaws.com/${params.Key}`;
+  } catch (err) {
+    console.error("❌ Maintenance image upload error:", err);
+    throw err;
+  }
+};
