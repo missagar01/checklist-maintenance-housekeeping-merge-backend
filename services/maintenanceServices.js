@@ -196,7 +196,77 @@ export const getPendingMaintenanceTasks = async (page = 1, limit = 50, userId = 
 /***************************************************************************
  * 🟦 3. HISTORY (Completed tasks = Actual_Date IS NOT NULL)
  ***************************************************************************/
-export const getCompletedMaintenanceTasks = async (page = 1, limit = 50, filters = {}) => {
+// export const getCompletedMaintenanceTasks = async (page = 1, limit = 50, filters = {}) => {
+//   const offset = (page - 1) * limit;
+
+//   const { search = "", machineName = "", serialNo = "", assignedTo = "", startDate = "", endDate = "" } = filters;
+
+//   let query = `
+//     SELECT ${MAINTENANCE_SELECT}
+//     FROM maintenance_task_assign
+//     WHERE "Actual_Date" IS NOT NULL
+//   `;
+
+//   const params = [];
+
+//   if (search) {
+//     query += ` AND (
+//       "Description" ILIKE $${params.length + 1} OR
+//       "Machine_Name" ILIKE $${params.length + 1} OR
+//       "Remarks" ILIKE $${params.length + 1}
+//     )`;
+//     params.push(`%${search}%`);
+//   }
+
+//   if (machineName) {
+//     query += ` AND "Machine_Name" = $${params.length + 1}`;
+//     params.push(machineName);
+//   }
+
+//   if (serialNo) {
+//     query += ` AND "Serial_No" = $${params.length + 1}`;
+//     params.push(serialNo);
+//   }
+
+//   if (assignedTo) {
+//     query += ` AND "Doer_Name" = $${params.length + 1}`;
+//     params.push(assignedTo);
+//   }
+
+//   if (startDate) {
+//     query += ` AND "Actual_Date" >= $${params.length + 1}`;
+//     params.push(startDate);
+//   }
+
+//   if (endDate) {
+//     query += ` AND "Actual_Date" <= $${params.length + 1}`;
+//     params.push(endDate);
+//   }
+
+//   if (assignedTo) {
+//     query += ` AND "Doer_Name" = $${params.length + 1}`;
+//     params.push(assignedTo);
+// }
+
+//   query += `
+//     ORDER BY "Actual_Date" DESC
+//     LIMIT $${params.length + 1}
+//     OFFSET $${params.length + 2}
+//   `;
+
+//   params.push(limit, offset);
+
+//   const result = await maintenancePool.query(query, params);
+//   return result.rows;
+// };
+
+
+export const getCompletedMaintenanceTasks = async (
+  page = 1,
+  limit = 50,
+  filters = {},
+  userId = null
+) => {
   const offset = (page - 1) * limit;
 
   const { search = "", machineName = "", serialNo = "", assignedTo = "", startDate = "", endDate = "" } = filters;
@@ -243,10 +313,11 @@ export const getCompletedMaintenanceTasks = async (page = 1, limit = 50, filters
     params.push(endDate);
   }
 
-  if (assignedTo) {
+  // ✅ USER RESTRICTION FIX
+  if (userId) {
     query += ` AND "Doer_Name" = $${params.length + 1}`;
-    params.push(assignedTo);
-}
+    params.push(userId);
+  }
 
   query += `
     ORDER BY "Actual_Date" DESC

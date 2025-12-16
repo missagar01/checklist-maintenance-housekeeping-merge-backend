@@ -89,7 +89,15 @@ export const getCompletedMaintenanceTasksController = async (req, res) => {
       endDate: req.query.endDate || ""
     };
 
-    const tasks = await getCompletedMaintenanceTasks(page, limit, filters);
+    // ✅ IMPORTANT LINE
+    const userId = req.query.userId || null;
+
+    const tasks = await getCompletedMaintenanceTasks(
+      page,
+      limit,
+      filters,
+      userId          // ✅ PASS USERID
+    );
 
     res.status(200).json({
       success: true,
@@ -103,6 +111,7 @@ export const getCompletedMaintenanceTasksController = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
 
 
 /**
