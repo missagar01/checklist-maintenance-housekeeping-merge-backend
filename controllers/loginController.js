@@ -2,6 +2,7 @@
 import { pool } from "../config/db.js";
 
 // controllers/loginController.js
+// controllers/loginController.js
 export const loginUserController = async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -10,9 +11,9 @@ export const loginUserController = async (req, res) => {
     if (!username || !password)
       return res.status(400).json({ error: "Username and Password are required" });
 
-    // Query PostgreSQL - Add page_access to SELECT
+    // Query PostgreSQL - Include system_access
     const query = `
-      SELECT user_name, password, role, status, email_id, user_access, page_access 
+      SELECT user_name, password, role, status, email_id, user_access, page_access, system_access 
       FROM users 
       WHERE user_name = $1 AND password = $2
       LIMIT 1
@@ -37,7 +38,8 @@ export const loginUserController = async (req, res) => {
       role: user.role,
       email_id: user.email_id,
       user_access: user.user_access,
-      page_access: user.page_access || "" // Return page_access
+      page_access: user.page_access || "",
+      system_access: user.system_access || "" // Return system_access
     });
 
   } catch (err) {
