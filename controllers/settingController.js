@@ -260,3 +260,57 @@ export const updateDepartment = async (req, res) => {
     res.status(500).json({ error: "Database error" });
   }
 };
+
+
+
+
+
+
+
+export const patchSystemAccess = async (req, res) => {
+  try {
+    const { id } = req.params;
+    let { system_access } = req.body;
+
+    if (!system_access) {
+      return res.status(400).json({ error: "system_access is required" });
+    }
+
+    system_access = system_access.trim().toUpperCase();
+
+    const existing = await pool.query(
+      "SELECT system_access FROM users WHERE id = $1",
+      [id]
+    );
+
+    let current = [];
+
+    if (existing.rows[0]?.system_access) {
+      current = existing.rows[0].system_access
+        .split(",")
+        .map(v => v.trim().toUpperCase());
+    }
+
+    if (current.includes(system_access)) {
+      current = current.filter(v => v !== system_access);
+    } else {
+      current.push(system_access);
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE users
+      SET system_access = $1
+      WHERE id = $2
+      RETURNING *
+      `,
+      [current.join(","), id]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error("Error patching system_access:", error);
+    res.status(500).json({ error: "Database error" });
+  }
+};

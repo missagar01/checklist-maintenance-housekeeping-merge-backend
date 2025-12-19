@@ -26,5 +26,6 @@ router.get("/departments-only", getDepartmentsOnly); // Gets only unique departm
 router.get("/given-by", getGivenByData); // Gets only unique given_by values
 router.post("/departments", createDepartment);
 router.put("/departments/:id", updateDepartment);
+router.patch("/users/:id/system_access", patchSystemAccess);
 
 export default router;
