@@ -9,7 +9,8 @@ import {
   getDepartmentsOnly,
   getGivenByData,
   createDepartment,
-  updateDepartment
+  updateDepartment,
+  patchSystemAccess
 } from "../controllers/settingController.js";
 
 const router = express.Router();
