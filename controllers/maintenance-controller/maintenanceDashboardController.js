@@ -38,9 +38,8 @@ export const getDashboardStats = async (req, res) => {
     `;
 
     const totalMachineQuery = `
-      SELECT COUNT(DISTINCT TRIM(LOWER(serial_no))) AS total_machines
-      FROM form_responses
-      WHERE serial_no IS NOT NULL AND TRIM(serial_no) <> '';
+      SELECT COUNT(*) AS total_machines
+      FROM form_responses;
     `;
 
     // Run queries
