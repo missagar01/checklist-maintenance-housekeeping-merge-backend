@@ -261,6 +261,81 @@ export const getPendingTask = async (req, res) => {
   }
 };
 
+export const getPendingToday = async (req, res) => {
+  try {
+    const { dashboardType, staffFilter = "all", departmentFilter = "all", role, username } = req.query;
+    const table = dashboardType;
+
+    const params = [];
+    let idx = 1;
+
+    let query = `
+      SELECT COUNT(*) AS count
+      FROM ${table}
+      WHERE task_start_date::date = CURRENT_DATE
+      AND submission_date IS NULL
+    `;
+
+    if (role === "user" && username) {
+      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      params.push(username);
+    }
+
+    if (role === "admin" && staffFilter !== "all") {
+      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      params.push(staffFilter);
+    }
+
+    if (dashboardType === "checklist" && departmentFilter !== "all") {
+      query += ` AND LOWER(department)=LOWER($${idx++})`;
+      params.push(departmentFilter);
+    }
+
+    const result = await pool.query(query, params);
+    res.json(Number(result.rows[0].count));
+  } catch (err) {
+    console.error("PENDING TODAY ERROR:", err.message);
+    res.status(500).json({ error: "Error fetching pending today tasks" });
+  }
+};
+
+export const getCompletedToday = async (req, res) => {
+  try {
+    const { dashboardType, staffFilter = "all", departmentFilter = "all", role, username } = req.query;
+    const table = dashboardType;
+
+    const params = [];
+    let idx = 1;
+
+    let query = `
+      SELECT COUNT(*) AS count
+      FROM ${table}
+      WHERE submission_date::date = CURRENT_DATE
+    `;
+
+    if (role === "user" && username) {
+      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      params.push(username);
+    }
+
+    if (role === "admin" && staffFilter !== "all") {
+      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      params.push(staffFilter);
+    }
+
+    if (dashboardType === "checklist" && departmentFilter !== "all") {
+      query += ` AND LOWER(department)=LOWER($${idx++})`;
+      params.push(departmentFilter);
+    }
+
+    const result = await pool.query(query, params);
+    res.json(Number(result.rows[0].count));
+  } catch (err) {
+    console.error("COMPLETED TODAY ERROR:", err.message);
+    res.status(500).json({ error: "Error fetching completed today tasks" });
+  }
+};
+
 
 export const getNotDoneTask = async (req, res) => {
   try {

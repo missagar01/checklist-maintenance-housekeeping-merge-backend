@@ -1,4 +1,5 @@
 # Checklist & Delegation Backend API Guide (Zero to Hero)
+# Checklist & Delegation Backend API Guide (Zero to Hero)
 
 Base URL (local): `http://localhost:5050/api`
 
@@ -6,6 +7,58 @@ Base URL (local): `http://localhost:5050/api`
 No auth headers in this build (backed by role/name query params). Set these in query where noted:
 - `role`: `admin` or `user`
 - `username`: current user name (for `role=user`)
+
+## Login
+- **POST** `/api/login`
+- Body: `{ "username": "<user>", "password": "<pass>" }` (if applicable; backend currently ignores password but retains structure)
+- Response: `{ "status": "success" }` or relevant auth/role details depending on implementation
+
+## Settings & Users
+All `/api/settings` endpoints manage users, departments, and system access flags.
+
+### List users (admin view)
+- **GET** `/api/settings/users`
+- Response: full user rows ordered by `id`. Includes `user_access`, `system_access`, and `page_access`.
+
+### Get a user by ID
+- **GET** `/api/settings/users/:id`
+- Response: the user row for the provided `id`; returns `404` if the user is missing.
+
+### Create a user
+- **POST** `/api/settings/users`
+- Body: `{ "username", "password", "email", "phone", "department", "givenBy", "employee_id", "role", "status", "user_access", "user_access1", "system_access", "page_access" }`
+- Response: newly created user row.
+
+### Update a user
+- **PUT** `/api/settings/users/:id`
+- Body: same shape as create (omit `password` to leave it unchanged).
+- Response: updated user row.
+
+### Delete a user
+- **DELETE** `/api/settings/users/:id`
+- Response: `{ "message": "User deleted", "id": "<id>" }`.
+
+### List departments
+- **GET** `/api/settings/departments`
+- Response: distinct `department`, `given_by`, and `id` from stored rows.
+
+### List unique departments only
+- **GET** `/api/settings/departments-only`
+- Response: `[ { "department": "..." }, ... ]`.
+
+### List unique `given_by` values
+- **GET** `/api/settings/given-by`
+- Response: `[ { "given_by": "..." }, ... ]`.
+
+### Create/update a department
+- **POST** `/api/settings/departments` / **PUT** `/api/settings/departments/:id`
+- Body: `{ "name", "givenBy" }` for create; `{ "department", "given_by" }` for update.
+- Response: affected department row.
+
+### Toggle a system access flag
+- **PATCH** `/api/settings/users/:id/system_access`
+- Body: `{ "system_access": "<FLAG>" }` (case-insensitive). Adds the flag when absent or removes it when present.
+- Response: updated user row.
 
 ## Quick Tasks
 All endpoints are under `/api/tasks` and expect/return JSON.
@@ -65,6 +118,14 @@ All endpoints under `/api/dashboard`. Use `dashboardType` as `checklist` or `del
 - **GET** `/api/dashboard/pending`
 - Same params; response integer.
 
+### Pending today (submission not made yet)
+- **GET** `/api/dashboard/pendingtoday`
+- Same params as `/pending`; returns a count of tasks whose `task_start_date` is today and `submission_date` is still null (matching the `/pending` list view logic).
+
+### Completed today (submissions recorded today)
+- **GET** `/api/dashboard/completedtoday`
+- Same params; returns a count of tasks whose `submission_date` is equal to the current date.
+
 ### Overdue (before today, not submitted)
 - **GET** `/api/dashboard/overdue`
 - Same params; response integer.
@@ -112,4 +173,4 @@ All date params are `YYYY-MM-DD` and inclusive (date-only comparison).
 ## Troubleshooting
 - Getting 0 on date range: ensure `startDate/endDate` are `YYYY-MM-DD`; for checklist, stats are inclusive on date-only.
 - Empty responses with filters: check `staffFilter/departmentFilter` aren’t narrowing too far; use `all` to test.
-- Large ranges: list endpoint caps at 5000 rows; use `/count` and `/stats` to inspect totals without the payload.***
+- Large ranges: list endpoint caps at 5000 rows; use `/count` and `/stats` to inspect totals without the payload.

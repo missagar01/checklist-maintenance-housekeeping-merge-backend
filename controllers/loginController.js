@@ -11,9 +11,9 @@ export const loginUserController = async (req, res) => {
     if (!username || !password)
       return res.status(400).json({ error: "Username and Password are required" });
 
-    // Query PostgreSQL - Include system_access
+    // Query PostgreSQL - Include system_access and user_access1
     const query = `
-      SELECT user_name, password, role, status, email_id, user_access, page_access, system_access 
+      SELECT user_name, password, role, status, email_id, user_access, user_access1, page_access, system_access 
       FROM users 
       WHERE user_name = $1 AND password = $2
       LIMIT 1
@@ -38,6 +38,7 @@ export const loginUserController = async (req, res) => {
       role: user.role,
       email_id: user.email_id,
       user_access: user.user_access,
+      user_access1: user.user_access1 || "",
       page_access: user.page_access || "",
       system_access: user.system_access || "" // Return system_access
     });

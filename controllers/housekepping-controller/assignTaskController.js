@@ -61,6 +61,62 @@ const extractRemark = (body = {}, query = {}) => {
   return found;
 };
 
+const normalizeDepartmentValue = (value) => {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\s+/g, ' ').trim();
+};
+
+const parseDepartments = (value) => {
+  if (!value) return [];
+  if (typeof value !== 'string') return Array.isArray(value) ? value.map(normalizeDepartmentValue).filter(Boolean) : [];
+  
+  // Handle comma-separated departments - split by comma and normalize each
+  return value
+    .split(',')
+    .map(d => {
+      // Normalize: trim and replace multiple spaces with single space
+      const normalized = d.replace(/\s+/g, ' ').trim();
+      return normalized;
+    })
+    .filter(Boolean); // Remove empty strings
+};
+
+const resolveDepartment = (req) => {
+  // For pending and history endpoints, token is not required
+  // Use query parameter for department filtering
+  const queryDept = req.query?.department;
+  if (queryDept) {
+    const departments = parseDepartments(queryDept);
+    if (departments.length > 0) {
+      return departments;
+    }
+  }
+
+  // If token exists, use it as fallback (optional)
+  if (req.user) {
+    // For housekeeping, prioritize user_access1 over user_access
+    const userAccess1 = req.user?.user_access1 || req.user?.userAccess1 || '';
+    if (userAccess1) {
+      const departments = parseDepartments(userAccess1);
+      if (departments.length > 0) {
+        return departments;
+      }
+    }
+
+    // Fallback to user_access if user_access1 is not available
+    const userAccess = req.user?.user_access || req.user?.userAccess || req.user?.department || '';
+    if (userAccess) {
+      const departments = parseDepartments(userAccess);
+      if (departments.length > 0) {
+        return departments;
+      }
+    }
+  }
+
+  // No department filter - return null to show all
+  return null;
+};
+
 const extractAttachment = (body = {}, query = {}) => {
   const candidates = [
     body.attachment,
@@ -86,6 +142,7 @@ const extractDoerName2 = (body = {}, query = {}) => {
   if (Buffer.isBuffer(found)) return found.toString();
   return found;
 };
+
 
 const prepareCreatePayload = (payload = {}) => {
   const frequency = normalizeFrequency(payload.frequency, { defaultValue: 'daily' });
@@ -196,20 +253,29 @@ const assignTaskController = {
     }
   },
 
+ 
   async overdue(req, res, next) {
     try {
       const limit = parsePositiveInt(req.query?.limit, { max: 100, defaultValue: 100 });
       const offset = parsePositiveInt(req.query?.offset, { defaultValue: 0 });
       const page = parsePositiveInt(req.query?.page, { defaultValue: 1 });
       const effectiveOffset = page && limit ? (page - 1) * limit : offset;
-      const department = req.query?.department;
+      const department = resolveDepartment(req);
 
-      const items = await assignTaskService.overdue({
+      const { items, total } = await assignTaskService.overdueWithTotal({
         limit,
         offset: effectiveOffset,
         department
       });
-      res.json(items);
+      const payload = {
+        items,
+        total,
+        limit,
+        offset: effectiveOffset,
+        page,
+        hasMore: effectiveOffset + items.length < total
+      };
+      res.json(payload);
     } catch (err) {
       next(err);
     }
@@ -231,14 +297,22 @@ const assignTaskController = {
       const offset = parsePositiveInt(req.query?.offset, { defaultValue: 0 });
       const page = parsePositiveInt(req.query?.page, { defaultValue: 1 });
       const effectiveOffset = page && limit ? (page - 1) * limit : offset;
-      const department = req.query?.department;
+      const department = resolveDepartment(req);
 
-      const items = await assignTaskService.today({
+      const { items, total } = await assignTaskService.todayWithTotal({
         limit,
         offset: effectiveOffset,
         department
       });
-      res.json(items);
+      const payload = {
+        items,
+        total,
+        limit,
+        offset: effectiveOffset,
+        page,
+        hasMore: effectiveOffset + items.length < total
+      };
+      res.json(payload);
     } catch (err) {
       next(err);
     }
@@ -250,14 +324,22 @@ const assignTaskController = {
       const offset = parsePositiveInt(req.query?.offset, { defaultValue: 0 });
       const page = parsePositiveInt(req.query?.page, { defaultValue: 1 });
       const effectiveOffset = page && limit ? (page - 1) * limit : offset;
-      const department = req.query?.department;
+      const department = resolveDepartment(req);
 
-      const items = await assignTaskService.tomorrow({
+      const { items, total } = await assignTaskService.tomorrowWithTotal({
         limit,
         offset: effectiveOffset,
         department
       });
-      res.json(items);
+      const payload = {
+        items,
+        total,
+        limit,
+        offset: effectiveOffset,
+        page,
+        hasMore: effectiveOffset + items.length < total
+      };
+      res.json(payload);
     } catch (err) {
       next(err);
     }
@@ -265,7 +347,7 @@ const assignTaskController = {
 
   async countToday(req, res, next) {
     try {
-      const department = req.query?.department;
+      const department = resolveDepartment(req);
       const count = await assignTaskService.countToday({ department });
       res.json({ count });
     } catch (err) {
@@ -275,7 +357,7 @@ const assignTaskController = {
 
   async countTomorrow(req, res, next) {
     try {
-      const department = req.query?.department;
+      const department = resolveDepartment(req);
       const count = await assignTaskService.countTomorrow({ department });
       res.json({ count });
     } catch (err) {
@@ -285,7 +367,7 @@ const assignTaskController = {
 
   async countOverdue(req, res, next) {
     try {
-      const department = req.query?.department;
+      const department = resolveDepartment(req);
       const count = await assignTaskService.countOverdue({ department });
       res.json({ count });
     } catch (err) {
@@ -299,16 +381,30 @@ const assignTaskController = {
       const offset = parsePositiveInt(req.query?.offset, { defaultValue: 0 });
       const page = parsePositiveInt(req.query?.page, { defaultValue: 1 });
       const effectiveOffset = page && limit ? (page - 1) * limit : offset;
-      const department = req.query?.department;
-const name = req.query?.name;
+      const department = resolveDepartment(req);
 
-const items = await assignTaskService.pending({
-  limit,
-  offset: effectiveOffset,
-  department,
-  name
-});
-      res.json(items);
+      const { items, total } = await assignTaskService.pendingWithTotal({
+        limit,
+        offset: effectiveOffset,
+        department
+      });
+      const payload = {
+        items,
+        total,
+        limit,
+        offset: effectiveOffset,
+        page,
+        hasMore: effectiveOffset + items.length < total
+      };
+      if (req.query?.debug === '1') {
+        payload.meta = {
+          role: req.user?.role || null,
+          department_used: department || null,
+          token_department: normalizeDepartmentValue(req.user?.department) || null,
+          token_access: normalizeDepartmentValue(req.user?.user_access) || null
+        };
+      }
+      res.json(payload);
     } catch (err) {
       next(err);
     }
@@ -320,17 +416,30 @@ const items = await assignTaskService.pending({
       const offset = parsePositiveInt(req.query?.offset, { defaultValue: 0 });
       const page = parsePositiveInt(req.query?.page, { defaultValue: 1 });
       const effectiveOffset = page && limit ? (page - 1) * limit : offset;
-const department = req.query?.department;
-const name = req.query?.name;
+      const department = resolveDepartment(req);
 
-const items = await assignTaskService.history({
-  limit,
-  offset: effectiveOffset,
-  department,
-  name
-});
-
-      res.json(items);
+      const { items, total } = await assignTaskService.historyWithTotal({
+        limit,
+        offset: effectiveOffset,
+        department
+      });
+      const payload = {
+        items,
+        total,
+        limit,
+        offset: effectiveOffset,
+        page,
+        hasMore: effectiveOffset + items.length < total
+      };
+      if (req.query?.debug === '1') {
+        payload.meta = {
+          role: req.user?.role || null,
+          department_used: department || null,
+          token_department: normalizeDepartmentValue(req.user?.department) || null,
+          token_access: normalizeDepartmentValue(req.user?.user_access) || null
+        };
+      }
+      res.json(payload);
     } catch (err) {
       next(err);
     }
@@ -376,6 +485,106 @@ const items = await assignTaskService.history({
       const updated = await assignTaskService.update(req.params.id, payload);
       if (!updated) throw new ApiError(404, 'Assignment not found');
       res.json(uploadedMeta ? { ...updated, uploaded_image: uploadedMeta } : updated);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async confirmAttachmentBulk(req, res, next) {
+    try {
+      const body = typeof req.body === 'string' ? safeJsonParse(req.body) : (req.body || {});
+      const rawIds = Array.isArray(body.ids) ? body.ids : (body.id ? [body.id] : []);
+      const ids = rawIds
+        .map((v) => (v !== undefined && v !== null ? String(v).trim() : ''))
+        .filter(Boolean);
+
+      if (ids.length === 0) {
+        throw new ApiError(400, 'ids array is required for bulk confirm');
+      }
+
+      const fileFromFields =
+        req.file ||
+        (req.files && Array.isArray(req.files) && req.files[0]) ||
+        (req.files && req.files.image && req.files.image[0]) ||
+        (req.files && req.files.upload && req.files.upload[0]);
+
+      const uploadedImage = toUploadedPath(req, fileFromFields);
+      const uploadedMeta = toUploadedMeta(req, fileFromFields);
+
+      const payload = {};
+      if (uploadedImage) {
+        payload.image = uploadedImage;
+      }
+
+      const attachmentValue = extractAttachment(body, req.query);
+      payload.attachment = attachmentValue !== undefined && attachmentValue !== null
+        ? String(attachmentValue)
+        : 'confirmed';
+
+      const explicitRemark = Object.prototype.hasOwnProperty.call(body, 'remark')
+        ? body.remark
+        : undefined;
+      const remarkValue = explicitRemark !== undefined ? explicitRemark : extractRemark(body, req.query);
+      if (remarkValue !== undefined && remarkValue !== null) {
+        payload.remark = String(remarkValue);
+      }
+
+      const doerName2Value = extractDoerName2(body, req.query);
+      if (doerName2Value !== undefined && doerName2Value !== null) {
+        payload.doer_name2 = String(doerName2Value);
+      }
+
+      const successes = [];
+      const failures = [];
+
+      for (const id of ids) {
+        // eslint-disable-next-line no-await-in-loop
+        const updated = await assignTaskService.update(id, payload);
+        if (updated) {
+          successes.push(uploadedMeta ? { ...updated, uploaded_image: uploadedMeta } : updated);
+        } else {
+          failures.push({ id, error: 'Not found' });
+        }
+      }
+
+      res.json({
+        updated: successes.length,
+        failed: failures.length,
+        items: successes,
+        failures
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async deleteBulk(req, res, next) {
+    try {
+      const body = typeof req.body === 'string' ? safeJsonParse(req.body) : (req.body || {});
+      let raw = body.ids ?? body.id ?? body.task_id ?? body.task_ids;
+      if (raw === undefined || raw === null) {
+        throw new ApiError(400, 'ids array is required for bulk delete');
+      }
+
+      let ids;
+      if (Array.isArray(raw)) {
+        ids = raw;
+      } else if (typeof raw === 'string') {
+        ids = raw.split(',');
+      } else {
+        ids = [raw];
+      }
+
+      const normalized = ids
+        .map((value) => (value !== undefined && value !== null ? String(value).trim() : ''))
+        .filter(Boolean);
+
+      if (normalized.length === 0) {
+        throw new ApiError(400, 'ids array is required for bulk delete');
+      }
+
+      const deleted = await assignTaskService.deleteMany(normalized);
+      res.json({ deleted });
     } catch (err) {
       next(err);
     }

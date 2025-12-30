@@ -164,6 +164,10 @@ class AssignTaskService {
     return assignTaskRepository.delete(id);
   }
 
+  deleteMany(ids = []) {
+    return assignTaskRepository.deleteMany(ids);
+  }
+
   async listDepartments() {
     return assignTaskRepository.listDepartments();
   }
@@ -339,6 +343,45 @@ class AssignTaskService {
     const cutoff = new Date();
     cutoff.setHours(23, 59, 59, 999); // include up to today
     return assignTaskRepository.findHistory(cutoff, options);
+  }
+
+  async pendingWithTotal(options = {}) {
+    const cutoff = new Date();
+    cutoff.setHours(23, 59, 59, 999); // include up to today
+    const items = await assignTaskRepository.findPending(cutoff, options);
+    const total = await assignTaskRepository.countPending(cutoff, options);
+    return { items, total };
+  }
+
+  async historyWithTotal(options = {}) {
+    const cutoff = new Date();
+    cutoff.setHours(23, 59, 59, 999); // include up to today
+    const items = await assignTaskRepository.findHistory(cutoff, options);
+    const total = await assignTaskRepository.countHistory(cutoff, options);
+    return { items, total };
+  }
+
+  async todayWithTotal(options = {}) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const items = await assignTaskRepository.findByDate(today, options);
+    const total = await assignTaskRepository.countByDate(today, options);
+    return { items, total };
+  }
+
+  async tomorrowWithTotal(options = {}) {
+    const tomorrow = new Date();
+    tomorrow.setHours(0, 0, 0, 0);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const items = await assignTaskRepository.findByDate(tomorrow, options);
+    const total = await assignTaskRepository.countByDate(tomorrow, options);
+    return { items, total };
+  }
+
+  async overdueWithTotal(options = {}) {
+    const items = await assignTaskRepository.findOverdue(null, options);
+    const total = await assignTaskRepository.countOverdue(options);
+    return { items, total };
   }
 }
 

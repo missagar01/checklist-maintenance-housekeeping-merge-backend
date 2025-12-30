@@ -4,6 +4,8 @@ import {
   getTotalTask,
   getCompletedTask,
   getPendingTask,
+  getPendingToday,
+  getCompletedToday,
   getOverdueTask,
   getUniqueDepartments,
   getStaffByDepartment,
@@ -24,6 +26,8 @@ router.get("/", getDashboardData);
 router.get("/total", getTotalTask);
 router.get("/completed", getCompletedTask);
 router.get("/pending", getPendingTask);
+router.get("/pendingtoday", getPendingToday);
+router.get("/completedtoday", getCompletedToday);
 router.get("/overdue", getOverdueTask);
 router.get("/not-done", getNotDoneTask);
 

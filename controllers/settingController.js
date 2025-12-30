@@ -22,6 +22,34 @@ export const getUsers = async (req, res) => {
 
 
 /*******************************
+ * 1.1) GET USER BY ID
+ *******************************/
+export const getUserById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM users
+      WHERE id = $1
+    `,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("❌ Error fetching user by id:", error);
+    res.status(500).json({ error: "Database error" });
+  }
+};
+
+
+/*******************************
  * 2) CREATE USER
  *******************************/
 export const createUser = async (req, res) => {
@@ -36,21 +64,24 @@ export const createUser = async (req, res) => {
       employee_id,
       role,
       status,
-      user_access
+      user_access,
+      user_access1,
+      system_access,
+      page_access
     } = req.body;
 
     const query = `
       INSERT INTO users (
         user_name, password, email_id, number, department,
-        given_by, role, status, user_access, employee_id
+        given_by, role, status, user_access, employee_id, user_access1, system_access, page_access
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       RETURNING *
     `;
 
     const values = [
       username, password, email, phone, department,
-      givenBy, role, status, user_access, employee_id
+      givenBy, role, status, user_access, employee_id, user_access1, system_access, page_access
     ];
 
     const result = await pool.query(query, values);
@@ -84,33 +115,72 @@ export const updateUser = async (req, res) => {
       given_by,
       leave_date,
       leave_end_date,
-      remark
+      remark,
+      user_access1,
+      system_access,
+      page_access
     } = req.body;
 
-    const query = `
-      UPDATE users SET
-        user_name = $1,
-        password = $2,
-        email_id = $3,
-        number = $4,
-        employee_id = $5,
-        role = $6,
-        status = $7,
-        user_access = $8,
-        department = $9,
-        given_by = $10,
-        leave_date = $11,
-        leave_end_date = $12,
-        remark = $13
-      WHERE id = $14
-      RETURNING *
-    `;
+    // Build query dynamically based on whether password is provided
+    let query;
+    let values;
 
-    const values = [
-      user_name, password, email_id, number, employee_id,
-      role, status, user_access, department, given_by,
-      leave_date, leave_end_date, remark, id
-    ];
+    if (password && password.trim() !== '') {
+      // Include password in update
+      query = `
+        UPDATE users SET
+          user_name = $1,
+          password = $2,
+          email_id = $3,
+          number = $4,
+          employee_id = $5,
+          role = $6,
+          status = $7,
+          user_access = $8,
+          department = $9,
+          given_by = $10,
+          leave_date = $11,
+          leave_end_date = $12,
+          remark = $13,
+          user_access1 = $14,
+          system_access = $15,
+          page_access = $16
+        WHERE id = $17
+        RETURNING *
+      `;
+      values = [
+        user_name, password, email_id, number, employee_id,
+        role, status, user_access, department, given_by,
+        leave_date, leave_end_date, remark, user_access1, system_access, page_access, id
+      ];
+    } else {
+      // Exclude password from update
+      query = `
+        UPDATE users SET
+          user_name = $1,
+          email_id = $2,
+          number = $3,
+          employee_id = $4,
+          role = $5,
+          status = $6,
+          user_access = $7,
+          department = $8,
+          given_by = $9,
+          leave_date = $10,
+          leave_end_date = $11,
+          remark = $12,
+          user_access1 = $13,
+          system_access = $14,
+          page_access = $15
+        WHERE id = $16
+        RETURNING *
+      `;
+      values = [
+        user_name, email_id, number, employee_id,
+        role, status, user_access, department, given_by,
+        leave_date, leave_end_date, remark, user_access1, system_access, page_access, id
+      ];
+    }
 
     const result = await pool.query(query, values);
 
