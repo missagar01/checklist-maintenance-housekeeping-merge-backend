@@ -1,4 +1,9 @@
-import { maintenancePool } from "../../config/db.js ";
+import { maintenancePool } from "../../config/db.js";
+import {
+  getMaintenanceDashboardSummaryService,
+  fetchMaintenanceDashboardDataService,
+  countMaintenanceTaskByViewService,
+} from "../../services/maintenance-serices/maintenanceDashboardServices.js";
 
 /**
  * helper → user filter
@@ -18,48 +23,76 @@ const getUserFilter = (req) => {
 };
 
 /**
- * ✅ Get overall dashboard summary stats
+ * ✅ Get overall dashboard summary stats (Updated to match checklist pattern)
  */
 export const getDashboardStats = async (req, res) => {
   try {
+    const {
+      staffFilter = "all",
+      departmentFilter = "all",
+      role = "admin",
+      username = null,
+    } = req.query;
 
-    const { condition, params } = getUserFilter(req);
+    const params = {
+      staffFilter,
+      departmentFilter,
+      role,
+      username,
+    };
 
-    const summaryQuery = `
-      SELECT 
-        COUNT(*) AS total_tasks,
-        COUNT(*) FILTER (WHERE "Actual_Date" IS NOT NULL) AS completed_tasks,
-        COUNT(*) FILTER (WHERE "Actual_Date" IS NULL) AS pending_tasks,
-        COUNT(*) FILTER (WHERE "Task_Start_Date" < NOW() AND "Actual_Date" IS NULL) AS overdue_tasks,
-        COALESCE(SUM("Maintenance_Cost"), 0) AS total_maintenance_cost
-      FROM maintenance_task_assign
-      WHERE 1=1
-      ${condition};
-    `;
+    // Get summary stats using service
+    const summary = await getMaintenanceDashboardSummaryService(params);
 
+    // Get total machines count
     const totalMachineQuery = `
       SELECT COUNT(*) AS total_machines
       FROM form_responses;
     `;
-
-    // Run queries
-    const [summaryRes, machinesRes] = await Promise.all([
-      maintenancePool.query(summaryQuery, params),
-      maintenancePool.query(totalMachineQuery)
-    ]);
-
-    const summary = summaryRes.rows[0];
+    const machinesRes = await maintenancePool.query(totalMachineQuery);
     const totalMachines = machinesRes.rows[0].total_machines;
+
+    // Calculate total maintenance cost
+    let totalMaintenanceCost = 0;
+    if (role === "user" && username) {
+      const costQuery = `
+        SELECT COALESCE(SUM("Maintenance_Cost"), 0) AS total_maintenance_cost
+        FROM maintenance_task_assign
+        WHERE "Actual_Date" IS NOT NULL
+        AND LOWER("Doer_Name") = LOWER($1)
+      `;
+      const costRes = await maintenancePool.query(costQuery, [username]);
+      totalMaintenanceCost = Number(costRes.rows[0]?.total_maintenance_cost || 0);
+    } else if (staffFilter && staffFilter !== "all" && role === "admin") {
+      const costQuery = `
+        SELECT COALESCE(SUM("Maintenance_Cost"), 0) AS total_maintenance_cost
+        FROM maintenance_task_assign
+        WHERE "Actual_Date" IS NOT NULL
+        AND LOWER("Doer_Name") = LOWER($1)
+      `;
+      const costRes = await maintenancePool.query(costQuery, [staffFilter]);
+      totalMaintenanceCost = Number(costRes.rows[0]?.total_maintenance_cost || 0);
+    } else {
+      const costQuery = `
+        SELECT COALESCE(SUM("Maintenance_Cost"), 0) AS total_maintenance_cost
+        FROM maintenance_task_assign
+        WHERE "Actual_Date" IS NOT NULL
+      `;
+      const costRes = await maintenancePool.query(costQuery);
+      totalMaintenanceCost = Number(costRes.rows[0]?.total_maintenance_cost || 0);
+    }
 
     res.json({
       success: true,
       data: {
         total_machines: Number(totalMachines),
-        total_tasks: Number(summary.total_tasks),
-        completed_tasks: Number(summary.completed_tasks),
-        pending_tasks: Number(summary.pending_tasks),
-        overdue_tasks: Number(summary.overdue_tasks),
-        total_maintenance_cost: Number(summary.total_maintenance_cost)
+        totalTasks: summary.totalTasks,
+        completedTasks: summary.completedTasks,
+        pendingTasks: summary.pendingTasks,
+        notDone: summary.notDone,
+        overdueTasks: summary.overdueTasks,
+        completionRate: summary.completionRate,
+        total_maintenance_cost: totalMaintenanceCost,
       }
     });
 
@@ -165,6 +198,295 @@ export const getFrequencyStats = async (req, res) => {
 
   } catch (error) {
     console.error("Error fetching frequency stats:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * ✅ Get Today Tasks (Recent Tasks)
+ */
+export const getTodayTasks = async (req, res) => {
+  try {
+    const {
+      staffFilter = "all",
+      departmentFilter = "all",
+      page = 1,
+      limit = 50,
+      role = "admin",
+      username = null,
+    } = req.query;
+
+    const tasks = await fetchMaintenanceDashboardDataService({
+      staffFilter,
+      departmentFilter,
+      page: Number(page),
+      limit: Number(limit),
+      taskView: "recent",
+      role,
+      username,
+    });
+
+    const totalCount = await countMaintenanceTaskByViewService({
+      taskView: "recent",
+      staffFilter,
+      departmentFilter,
+      role,
+      username,
+    });
+
+    res.json({
+      success: true,
+      data: tasks,
+      total: totalCount,
+      page: Number(page),
+      limit: Number(limit),
+    });
+
+  } catch (error) {
+    console.error("Error fetching today tasks:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * ✅ Get Upcoming Tasks (Tomorrow Tasks)
+ */
+export const getUpcomingTasks = async (req, res) => {
+  try {
+    const {
+      staffFilter = "all",
+      departmentFilter = "all",
+      page = 1,
+      limit = 50,
+      role = "admin",
+      username = null,
+    } = req.query;
+
+    const tasks = await fetchMaintenanceDashboardDataService({
+      staffFilter,
+      departmentFilter,
+      page: Number(page),
+      limit: Number(limit),
+      taskView: "upcoming",
+      role,
+      username,
+    });
+
+    const totalCount = await countMaintenanceTaskByViewService({
+      taskView: "upcoming",
+      staffFilter,
+      departmentFilter,
+      role,
+      username,
+    });
+
+    res.json({
+      success: true,
+      data: tasks,
+      total: totalCount,
+      page: Number(page),
+      limit: Number(limit),
+    });
+
+  } catch (error) {
+    console.error("Error fetching upcoming tasks:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * ✅ Get Overdue Tasks
+ */
+export const getOverdueTasks = async (req, res) => {
+  try {
+    const {
+      staffFilter = "all",
+      departmentFilter = "all",
+      page = 1,
+      limit = 50,
+      role = "admin",
+      username = null,
+    } = req.query;
+
+    const tasks = await fetchMaintenanceDashboardDataService({
+      staffFilter,
+      departmentFilter,
+      page: Number(page),
+      limit: Number(limit),
+      taskView: "overdue",
+      role,
+      username,
+    });
+
+    const totalCount = await countMaintenanceTaskByViewService({
+      taskView: "overdue",
+      staffFilter,
+      departmentFilter,
+      role,
+      username,
+    });
+
+    res.json({
+      success: true,
+      data: tasks,
+      total: totalCount,
+      page: Number(page),
+      limit: Number(limit),
+    });
+
+  } catch (error) {
+    console.error("Error fetching overdue tasks:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * ✅ Get Dashboard Data (with taskView filter)
+ */
+export const getDashboardData = async (req, res) => {
+  try {
+    const {
+      staffFilter = "all",
+      departmentFilter = "all",
+      page = 1,
+      limit = 50,
+      taskView = "recent",
+      role = "admin",
+      username = null,
+    } = req.query;
+
+    const tasks = await fetchMaintenanceDashboardDataService({
+      staffFilter,
+      departmentFilter,
+      page: Number(page),
+      limit: Number(limit),
+      taskView,
+      role,
+      username,
+    });
+
+    const totalCount = await countMaintenanceTaskByViewService({
+      taskView,
+      staffFilter,
+      departmentFilter,
+      role,
+      username,
+    });
+
+    res.json({
+      success: true,
+      data: tasks,
+      total: totalCount,
+      page: Number(page),
+      limit: Number(limit),
+    });
+
+  } catch (error) {
+    console.error("Error fetching dashboard data:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * ✅ Get Unique Departments from maintenance_task_assign
+ */
+export const getMaintenanceDepartments = async (req, res) => {
+  try {
+    const role = req.query.role;
+    const username = req.query.username;
+
+    let whereConditions = [
+      `"doer_department" IS NOT NULL`,
+      `TRIM("doer_department") <> ''`
+    ];
+    let queryParams = [];
+    let paramIndex = 1;
+
+    // Add user filter if role is user
+    if (role === "user" && username) {
+      whereConditions.push(`LOWER("Doer_Name") = LOWER($${paramIndex})`);
+      queryParams.push(username);
+      paramIndex++;
+    }
+
+    const whereClause = `WHERE ${whereConditions.join(" AND ")}`;
+
+    const query = `
+      SELECT DISTINCT "doer_department" AS department
+      FROM maintenance_task_assign
+      ${whereClause}
+      ORDER BY "doer_department" ASC
+    `;
+
+    const { rows } = await maintenancePool.query(query, queryParams);
+
+    const departments = rows
+      .map((r) => r.department?.trim())
+      .filter((d) => d && d.length > 0)
+      .sort((a, b) => a.localeCompare(b));
+
+    res.json({
+      success: true,
+      data: departments,
+    });
+  } catch (error) {
+    console.error("Error fetching maintenance departments:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * ✅ Get Staff Names by Department from maintenance_task_assign
+ */
+export const getMaintenanceStaffByDepartment = async (req, res) => {
+  try {
+    const { departmentFilter = "all" } = req.query;
+    const role = req.query.role;
+    const username = req.query.username;
+
+    let whereConditions = [
+      `"Doer_Name" IS NOT NULL`,
+      `TRIM("Doer_Name") <> ''`
+    ];
+    let queryParams = [];
+    let paramIndex = 1;
+
+    // Add user filter if role is user
+    if (role === "user" && username) {
+      whereConditions.push(`LOWER("Doer_Name") = LOWER($${paramIndex})`);
+      queryParams.push(username);
+      paramIndex++;
+    }
+
+    // Add department filter
+    if (departmentFilter && departmentFilter !== "all") {
+      whereConditions.push(`LOWER("doer_department") = LOWER($${paramIndex})`);
+      queryParams.push(departmentFilter);
+      paramIndex++;
+    }
+
+    const whereClause = `WHERE ${whereConditions.join(" AND ")}`;
+
+    const query = `
+      SELECT DISTINCT "Doer_Name" AS name
+      FROM maintenance_task_assign
+      ${whereClause}
+      ORDER BY "Doer_Name" ASC
+    `;
+
+    const { rows } = await maintenancePool.query(query, queryParams);
+
+    const staffNames = rows
+      .map((r) => r.name?.trim())
+      .filter((n) => n && n.length > 0)
+      .sort((a, b) => a.localeCompare(b));
+
+    res.json({
+      success: true,
+      data: staffNames,
+    });
+  } catch (error) {
+    console.error("Error fetching maintenance staff:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 };
