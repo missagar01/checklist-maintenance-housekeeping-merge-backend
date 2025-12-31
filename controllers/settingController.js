@@ -121,6 +121,19 @@ export const updateUser = async (req, res) => {
       page_access
     } = req.body;
 
+    // Truncate long values to prevent database errors
+    const truncateString = (str, maxLength = 500) => {
+      if (!str || typeof str !== 'string') return str || '';
+      return str.length > maxLength ? str.substring(0, maxLength) : str;
+    };
+
+    // Truncate fields that might exceed database limits
+    const safeUserAccess1 = truncateString(user_access1, 500);
+    const safeSystemAccess = truncateString(system_access, 500);
+    const safePageAccess = truncateString(page_access, 500);
+    const safeUserAccess = truncateString(user_access, 500);
+    const safeRemark = truncateString(remark, 500);
+
     // Build query dynamically based on whether password is provided
     let query;
     let values;
@@ -150,8 +163,8 @@ export const updateUser = async (req, res) => {
       `;
       values = [
         user_name, password, email_id, number, employee_id,
-        role, status, user_access, department, given_by,
-        leave_date, leave_end_date, remark, user_access1, system_access, page_access, id
+        role, status, safeUserAccess, department, given_by,
+        leave_date, leave_end_date, safeRemark, safeUserAccess1, safeSystemAccess, safePageAccess, id
       ];
     } else {
       // Exclude password from update
@@ -177,8 +190,8 @@ export const updateUser = async (req, res) => {
       `;
       values = [
         user_name, email_id, number, employee_id,
-        role, status, user_access, department, given_by,
-        leave_date, leave_end_date, remark, user_access1, system_access, page_access, id
+        role, status, safeUserAccess, department, given_by,
+        leave_date, leave_end_date, safeRemark, safeUserAccess1, safeSystemAccess, safePageAccess, id
       ];
     }
 
