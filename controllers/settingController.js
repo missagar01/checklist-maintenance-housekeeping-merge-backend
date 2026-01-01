@@ -70,19 +70,31 @@ export const createUser = async (req, res) => {
       page_access
     } = req.body;
 
+    // Prepare values array with proper null handling
+    const values = [
+      username || null,
+      password || null,
+      email || null,
+      phone || null,
+      department || null,
+      givenBy || null,
+      role || 'user',
+      status || 'active',
+      user_access || null,
+      employee_id || null,
+      user_access1 || null,
+      system_access || null,
+      page_access || null
+    ];
+
     const query = `
       INSERT INTO users (
         user_name, password, email_id, number, department,
         given_by, role, status, user_access, employee_id, user_access1, system_access, page_access
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `;
-
-    const values = [
-      username, password, email, phone, department,
-      givenBy, role, status, user_access, employee_id, user_access1, system_access, page_access
-    ];
 
     const result = await pool.query(query, values);
 
@@ -90,7 +102,7 @@ export const createUser = async (req, res) => {
 
   } catch (error) {
     console.error("❌ Error creating user:", error);
-    res.status(500).json({ error: "Database error" });
+    res.status(500).json({ error: error.message || "Database error" });
   }
 };
 
