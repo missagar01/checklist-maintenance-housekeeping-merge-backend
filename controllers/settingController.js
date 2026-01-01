@@ -133,6 +133,7 @@ export const updateUser = async (req, res) => {
       page_access
     } = req.body;
 
+    
     // Truncate long values to prevent database errors
     const truncateString = (str, maxLength = 500) => {
       if (!str || typeof str !== 'string') return str || '';
