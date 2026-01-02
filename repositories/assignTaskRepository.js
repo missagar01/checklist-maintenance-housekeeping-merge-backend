@@ -882,7 +882,29 @@ class AssignTaskRepository {
       return this.updateInMemory(id, input);
     }
 
-    const existing = await this.findById(id);
+    // Try to find by id first (integer), then by task_id (string) if id lookup fails
+    let existing = await this.findById(id);
+    let actualId = id;
+    
+    if (!existing) {
+      // If id is a string that looks like a number, try converting it
+      const numericId = Number(id);
+      if (!Number.isNaN(numericId) && Number.isInteger(numericId)) {
+        existing = await this.findById(numericId);
+        if (existing) {
+          actualId = numericId;
+        }
+      }
+      // If still not found, try finding by task_id
+      if (!existing) {
+        const result = await query('SELECT * FROM assign_task WHERE task_id = $1', [String(id)]);
+        const record = result.rows[0];
+        if (record) {
+          existing = formatTaskDates(applyComputedDelay(record));
+          actualId = record.id; // Use the actual id from the database for the update
+        }
+      }
+    }
     if (!existing) return null;
 
     const submissionDate = Object.prototype.hasOwnProperty.call(input, 'submission_date')
@@ -943,7 +965,7 @@ class AssignTaskRepository {
       return existing ? formatTaskDates(applyComputedDelay(existing)) : null;
     }
 
-    params.push(id);
+    params.push(actualId);
 
     const sql = `
       UPDATE assign_task
@@ -953,7 +975,8 @@ class AssignTaskRepository {
     `;
 
     const result = await query(sql, params);
-    return result.rows[0] || null;
+    const record = result.rows[0];
+    return record ? formatTaskDates(applyComputedDelay(record)) : null;
   }
 
   async delete(id) {

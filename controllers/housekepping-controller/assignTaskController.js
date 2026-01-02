@@ -448,6 +448,11 @@ const assignTaskController = {
   // Mark an assignment as confirmed (stores marker in attachment column)
   async confirmAttachment(req, res, next) {
     try {
+      const taskId = req.params.id;
+      if (!taskId) {
+        throw new ApiError(400, 'Task ID is required');
+      }
+
       const body = typeof req.body === 'string' ? safeJsonParse(req.body) : (req.body || {});
       const payload = {};
 
@@ -482,10 +487,15 @@ const assignTaskController = {
         payload.doer_name2 = String(doerName2Value);
       }
 
-      const updated = await assignTaskService.update(req.params.id, payload);
-      if (!updated) throw new ApiError(404, 'Assignment not found');
+      logger.info({ taskId, payload }, 'Confirming housekeeping task');
+      const updated = await assignTaskService.update(taskId, payload);
+      if (!updated) {
+        logger.warn({ taskId }, 'Housekeeping task not found for confirmation');
+        throw new ApiError(404, 'Assignment not found');
+      }
       res.json(uploadedMeta ? { ...updated, uploaded_image: uploadedMeta } : updated);
     } catch (err) {
+      logger.error({ err, taskId: req.params.id }, 'Error confirming housekeeping task');
       next(err);
     }
   },
