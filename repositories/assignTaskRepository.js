@@ -116,6 +116,28 @@ const formatLocalDateString = (value) => {
   return `${date.getFullYear()}-${padTwo(date.getMonth() + 1)}-${padTwo(date.getDate())}`;
 };
 
+// Get current month start and end dates
+const getCurrentMonthStart = () => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  start.setHours(0, 0, 0, 0);
+  return formatLocalDateString(start);
+};
+
+const getCurrentMonthEnd = () => {
+  const now = new Date();
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  end.setHours(23, 59, 59, 999);
+  return formatLocalDateString(end);
+};
+
+const getNextMonthStart = () => {
+  const now = new Date();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  nextMonth.setHours(0, 0, 0, 0);
+  return formatLocalDateString(nextMonth);
+};
+
 class AssignTaskRepository {
   constructor() {
     this.records = [];
@@ -228,11 +250,28 @@ class AssignTaskRepository {
 
   async findOverdue(cutoff, options = {}) {
     if (useMemory) {
+      // Get current month boundaries
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      nextMonthStart.setHours(0, 0, 0, 0);
+      
       const endTs = cutoff ? cutoff.getTime() : Number.POSITIVE_INFINITY;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
       const filtered = this.records.filter((task) => {
         if (!task || !task.task_start_date) return false;
         const start = new Date(task.task_start_date);
         if (Number.isNaN(start.getTime())) return false;
+        start.setHours(0, 0, 0, 0);
+        
+        // Filter by current month
+        if (start < currentMonthStart || start >= nextMonthStart) return false;
+        
+        // Filter by overdue (before today)
+        if (start >= today) return false;
         if (start > endTs) return false;
         if (!matchesDepartment(task.department, options.department)) return false;
         return !task.submission_date;
@@ -241,20 +280,26 @@ class AssignTaskRepository {
     }
 
     // Use today's date (not cutoff) for comparison: task_start_date < today
+    // Filter by current month only
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayDate = formatLocalDateString(today);
-    if (!todayDate) {
+    const currentMonthStart = getCurrentMonthStart();
+    const nextMonthStart = getNextMonthStart();
+    
+    if (!todayDate || !currentMonthStart || !nextMonthStart) {
       return [];
     }
     
-    const params = [todayDate];
+    const params = [todayDate, currentMonthStart, nextMonthStart];
     let sql = `
       SELECT *
       FROM assign_task
       WHERE submission_date IS NULL
         AND task_start_date IS NOT NULL
         AND task_start_date::date < $1::date
+        AND task_start_date::date >= $2::date
+        AND task_start_date::date < $3::date
     `;
 
     if (options.department) {
@@ -518,6 +563,23 @@ class AssignTaskRepository {
 
     if (useMemory) {
       const all = await this.findAll(statsOptions);
+      
+      // Get current month boundaries
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      nextMonthStart.setHours(0, 0, 0, 0);
+      
+      // Filter tasks to current month only
+      const currentMonthTasks = all.filter((t) => {
+        if (!t.task_start_date) return false;
+        const taskDate = new Date(t.task_start_date);
+        if (Number.isNaN(taskDate.getTime())) return false;
+        taskDate.setHours(0, 0, 0, 0);
+        return taskDate >= currentMonthStart && taskDate < nextMonthStart;
+      });
+      
       let referenceCutoff = cutoff ? new Date(cutoff) : new Date();
       if (Number.isNaN(referenceCutoff.getTime())) {
         referenceCutoff = new Date();
@@ -528,10 +590,10 @@ class AssignTaskRepository {
       todayDay.setDate(todayDay.getDate() + 1);
 
       const toLower = (v) => (v ? String(v).trim().toLowerCase() : '');
-      const completed = all.filter((t) => toLower(t.status) === 'yes').length;
-      const notDone = all.filter((t) => toLower(t.status) === 'no').length;
+      const completed = currentMonthTasks.filter((t) => toLower(t.status) === 'yes').length;
+      const notDone = currentMonthTasks.filter((t) => toLower(t.status) === 'no').length;
 
-      const active = all.filter((t) => {
+      const active = currentMonthTasks.filter((t) => {
         // Only include tasks with start date on/before today
         if (!t.task_start_date) return false;
         const d = new Date(t.task_start_date);
@@ -567,8 +629,8 @@ class AssignTaskRepository {
         }
       });
 
-      // Count upcoming tasks (tomorrow's tasks)
-      const upcomingTasks = all.filter((t) => {
+      // Count upcoming tasks (tomorrow's tasks) - only from current month
+      const upcomingTasks = currentMonthTasks.filter((t) => {
         if (!t.task_start_date) return false;
         const d = new Date(t.task_start_date);
         if (Number.isNaN(d.getTime())) return false;
@@ -615,6 +677,26 @@ class AssignTaskRepository {
         AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) = LOWER(REGEXP_REPLACE(TRIM($${index}), '\\\\s+', ' ', 'g'))`;
     }
 
+    // Get current month boundaries
+    const currentMonthStart = getCurrentMonthStart();
+    const nextMonthStart = getNextMonthStart();
+    
+    // Build params array: [currentMonthStart, nextMonthStart, todayDate, tomorrowDate, ...department]
+    const monthParams = [currentMonthStart, nextMonthStart, todayDate, tomorrowDate];
+    let paramIndex = monthParams.length;
+    
+    // Add department to params if needed
+    if (departmentFilter) {
+      monthParams.push(departmentFilter);
+      paramIndex = monthParams.length;
+    }
+    
+    let monthClause = ` AND task_start_date::date >= $1::date AND task_start_date::date < $2::date`;
+    let deptClause = '';
+    if (departmentFilter) {
+      deptClause = ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) = LOWER(REGEXP_REPLACE(TRIM($${paramIndex}), '\\\\s+', ' ', 'g'))`;
+    }
+    
     const sql = `
       WITH base AS (
         SELECT
@@ -623,22 +705,24 @@ class AssignTaskRepository {
           submission_date
         FROM assign_task
         WHERE task_start_date IS NOT NULL
-        ${departmentClause}
+        ${monthClause}
+        ${deptClause}
       )
       SELECT
         (SELECT count(*) FROM base WHERE status = 'yes') AS completed,
         (SELECT count(*) FROM base WHERE status = 'no') AS not_done,
-        (SELECT count(*) FROM base WHERE submission_date IS NULL AND task_start_date::date < $1::date) AS overdue,
+        (SELECT count(*) FROM base WHERE submission_date IS NULL AND task_start_date::date < $3::date) AS overdue,
         (SELECT count(*) FROM assign_task
-          WHERE task_start_date >= $1
-            AND task_start_date < $2
+          WHERE task_start_date >= $3
+            AND task_start_date < $4
             AND submission_date IS NULL
-            ${departmentClause}
+            ${monthClause}
+            ${deptClause}
         ) AS pending,
-        (SELECT count(*) FROM base WHERE task_start_date::date <= $1::date) AS total;
+        (SELECT count(*) FROM base WHERE task_start_date::date <= $3::date) AS total;
     `;
 
-    const result = await query(sql, params);
+    const result = await query(sql, monthParams);
     const row = result.rows[0] || {};
     const total = Number(row.total) || 0;
     const completed = Number(row.completed) || 0;
@@ -710,6 +794,13 @@ class AssignTaskRepository {
 
   async countOverdue(options = {}) {
     if (useMemory) {
+      // Get current month boundaries
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      nextMonthStart.setHours(0, 0, 0, 0);
+      
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const count = this.records.filter((task) => {
@@ -717,6 +808,11 @@ class AssignTaskRepository {
         const start = new Date(task.task_start_date);
         if (Number.isNaN(start.getTime())) return false;
         start.setHours(0, 0, 0, 0);
+        
+        // Filter by current month
+        if (start < currentMonthStart || start >= nextMonthStart) return false;
+        
+        // Filter by overdue (before today)
         if (start >= today) return false;
         if (!matchesDepartment(task.department, options.department)) return false;
         return !task.submission_date;
@@ -727,14 +823,22 @@ class AssignTaskRepository {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayDate = formatLocalDateString(today);
+    const currentMonthStart = getCurrentMonthStart();
+    const nextMonthStart = getNextMonthStart();
     
-    const params = [todayDate];
+    if (!todayDate || !currentMonthStart || !nextMonthStart) {
+      return 0;
+    }
+    
+    const params = [todayDate, currentMonthStart, nextMonthStart];
     let sql = `
       SELECT COUNT(*) as count
       FROM assign_task
       WHERE submission_date IS NULL
         AND task_start_date IS NOT NULL
         AND task_start_date::date < $1::date
+        AND task_start_date::date >= $2::date
+        AND task_start_date::date < $3::date
     `;
 
     if (options.department) {
