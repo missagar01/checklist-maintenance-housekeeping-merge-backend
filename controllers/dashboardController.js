@@ -775,4 +775,3 @@ export const getChecklistDateRangeCount = async (req, res) => {
     res.status(500).json({ error: "Error fetching date range count" });
   }
 };
-

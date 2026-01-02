@@ -1,5 +1,6 @@
 import { query } from '../config/housekeppingdb.js';
 import config from '../utils/config.js';
+import logger from '../utils/logger.js';
 
 const useMemory = config.env === 'test';
 
@@ -555,184 +556,149 @@ class AssignTaskRepository {
   }
 
   async aggregateStats(cutoff, options = {}) {
-    const statsOptions = {};
-    const departmentFilter = normalizeDepartment(options.department);
-    if (departmentFilter) {
-      statsOptions.department = departmentFilter;
-    }
-
-    if (useMemory) {
-      const all = await this.findAll(statsOptions);
-      
-      // Get current month boundaries
-      const now = new Date();
-      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      currentMonthStart.setHours(0, 0, 0, 0);
-      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      nextMonthStart.setHours(0, 0, 0, 0);
-      
-      // Filter tasks to current month only
-      const currentMonthTasks = all.filter((t) => {
-        if (!t.task_start_date) return false;
-        const taskDate = new Date(t.task_start_date);
-        if (Number.isNaN(taskDate.getTime())) return false;
-        taskDate.setHours(0, 0, 0, 0);
-        return taskDate >= currentMonthStart && taskDate < nextMonthStart;
-      });
-      
-      let referenceCutoff = cutoff ? new Date(cutoff) : new Date();
-      if (Number.isNaN(referenceCutoff.getTime())) {
-        referenceCutoff = new Date();
-      }
-      const cutoffDay = new Date(referenceCutoff);
-      cutoffDay.setHours(0, 0, 0, 0);
-      const todayDay = new Date(cutoffDay);
-      todayDay.setDate(todayDay.getDate() + 1);
-
-      const toLower = (v) => (v ? String(v).trim().toLowerCase() : '');
-      const completed = currentMonthTasks.filter((t) => toLower(t.status) === 'yes').length;
-      const notDone = currentMonthTasks.filter((t) => toLower(t.status) === 'no').length;
-
-      const active = currentMonthTasks.filter((t) => {
-        // Only include tasks with start date on/before today
-        if (!t.task_start_date) return false;
-        const d = new Date(t.task_start_date);
-        if (Number.isNaN(d.getTime())) return false;
-        d.setHours(0, 0, 0, 0);
-        return d.getTime() <= todayDay.getTime();
-      });
-
-      let overdue = 0;
-      let pending = 0;
-      let upcoming = 0;
-      
-      // Calculate tomorrow for range check
-      const tomorrowDay = new Date(todayDay);
-      tomorrowDay.setDate(tomorrowDay.getDate() + 1);
-      
-      active.forEach((t) => {
-        if (t.submission_date) return;
-        if (!t.task_start_date) {
-          pending += 1;
-          return;
-        }
-        const d = new Date(t.task_start_date);
-        if (Number.isNaN(d.getTime())) {
-          pending += 1;
-          return;
-        }
-        // Pending: task_start_date >= today AND task_start_date < tomorrow AND submission_date IS NULL
-        if (d.getTime() >= todayDay.getTime() && d.getTime() < tomorrowDay.getTime()) {
-          pending += 1; // today's tasks with no submission
-        } else if (d.getTime() < todayDay.getTime()) {
-          overdue += 1; // before today and no submission
-        }
-      });
-
-      // Count upcoming tasks (tomorrow's tasks) - only from current month
-      const upcomingTasks = currentMonthTasks.filter((t) => {
-        if (!t.task_start_date) return false;
-        const d = new Date(t.task_start_date);
-        if (Number.isNaN(d.getTime())) return false;
-        d.setHours(0, 0, 0, 0);
-        return d.getTime() === tomorrowDay.getTime();
-      });
-      upcoming = upcomingTasks.length;
-
-      const total = active.length;
-      const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
-
+    // Use the SAME count methods as working APIs (countOverdue, countPending, countByDate)
+    // This ensures department filter works correctly
+    
+    // Calculate today and tomorrow dates - USE EXACT SAME LOGIC AS TODAY API
+    // Today API uses: const today = new Date(); today.setHours(0, 0, 0, 0);
+    const todayDay = new Date();
+    todayDay.setHours(0, 0, 0, 0); // Today (same as today API)
+    const tomorrowDay = new Date(todayDay);
+    tomorrowDay.setDate(tomorrowDay.getDate() + 1); // Tomorrow
+    
+    // Use working count methods - these already have current month and department filter
+    // Overdue: tasks before today with no submission (current month only)
+    const overdue = await this.countOverdue(options);
+    // Upcoming: tomorrow's tasks (current month only)
+    const upcoming = await this.countByDate(tomorrowDay, options);
+    
+    // Pending: today's tasks with no submission - USE SAME LOGIC AS TODAY API
+    const todayDate = formatLocalDateString(todayDay);
+    const currentMonthStart = getCurrentMonthStart();
+    const nextMonthStart = getNextMonthStart();
+    
+    if (!todayDate || !currentMonthStart || !nextMonthStart) {
       return {
+        total: 0,
+        completed: 0,
+        pending: 0,
+        upcoming: 0,
+        overdue: 0,
+        progress_percent: 0
+      };
+    }
+    
+    // Pending = today's tasks with no submission - USE EXACT SAME LOGIC AS TODAY API
+    // Today API uses: countByDate(today, options) where today = new Date() with hours set to 0
+    // For pending, we need the SAME query but with submission_date IS NULL filter
+    // Use countByDate method structure EXACTLY but add submission_date IS NULL
+    const pendingParams = [todayDate, currentMonthStart, nextMonthStart];
+    let pendingSql = `
+      SELECT COUNT(*) as count
+      FROM assign_task
+      WHERE task_start_date::date = $1::date
+        AND task_start_date::date >= $2::date
+        AND task_start_date::date < $3::date
+        AND submission_date IS NULL
+    `;
+    
+    // Add department filter for pending - EXACT same logic as countByDate (lines 761-772)
+    if (options.department) {
+      if (Array.isArray(options.department) && options.department.length > 0) {
+        const placeholders = options.department.map((_, idx) => {
+          pendingParams.push(options.department[idx]);
+          return `LOWER(REGEXP_REPLACE(TRIM($${pendingParams.length}), '\\\\s+', ' ', 'g'))`;
+        }).join(', ');
+        pendingSql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) IN (${placeholders})`;
+      } else if (typeof options.department === 'string' && options.department.trim() !== '') {
+        pendingParams.push(options.department);
+        pendingSql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) = LOWER(REGEXP_REPLACE(TRIM($${pendingParams.length}), '\\\\s+', ' ', 'g'))`;
+      }
+    }
+    
+    // Log for debugging - compare with today API
+    if (!useMemory) {
+      // Also get today API count for comparison
+      const todayApiCount = await this.countByDate(todayDay, options);
+      logger.info({
+        pendingSql: pendingSql.replace(/\s+/g, ' ').trim(),
+        pendingParams,
+        todayDate,
+        currentMonthStart,
+        nextMonthStart,
+        department: options.department,
+        todayApiCount,
+        note: 'Pending = today tasks with submission_date IS NULL. Today API counts all tasks.'
+      }, 'Pending tasks query - should match today API when filtered by submission_date IS NULL');
+    }
+    
+    const pendingResult = await query(pendingSql, pendingParams);
+    const pending = Number(pendingResult.rows[0]?.count || 0);
+    
+    // Get current month boundaries for completed and total counts (already calculated above)
+    
+    // Count completed tasks (status = 'yes') in current month with department filter
+    // IMPORTANT: Date parameters must be first, then department parameters
+    const params = [currentMonthStart, nextMonthStart];
+    let sql = `
+      SELECT COUNT(*) as count
+      FROM assign_task
+      WHERE task_start_date IS NOT NULL
+        AND task_start_date::date >= $1::date
+        AND task_start_date::date < $2::date
+        AND LOWER(TRIM(status)) = 'yes'
+    `;
+    
+    // Add department filter - same logic as working APIs (parameters will be $3, $4, etc.)
+    if (options.department) {
+      if (Array.isArray(options.department) && options.department.length > 0) {
+        const placeholders = options.department.map((_, idx) => {
+          params.push(options.department[idx]);
+          return `LOWER(REGEXP_REPLACE(TRIM($${params.length}), '\\\\s+', ' ', 'g'))`;
+        }).join(', ');
+        sql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) IN (${placeholders})`;
+      } else if (typeof options.department === 'string' && options.department.trim() !== '') {
+        params.push(options.department);
+        sql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) = LOWER(REGEXP_REPLACE(TRIM($${params.length}), '\\\\s+', ' ', 'g'))`;
+      }
+    }
+    
+    // Log SQL for debugging
+    if (!useMemory) {
+      logger.info({
+        completedSql: sql.replace(/\s+/g, ' ').trim(),
+        completedParams: params,
+        currentMonthStart,
+        nextMonthStart,
+        department: options.department
+      }, 'Completed tasks query');
+    }
+    
+    const completedResult = await query(sql, params);
+    const completed = Number(completedResult.rows[0]?.count || 0);
+    
+    // Total = Sum of all visible categories (pending + upcoming + completed + overdue)
+    // This ensures total matches the sum of displayed categories
+    // All counts are already filtered by current month and department
+    const total = pending + upcoming + completed + overdue;
+    
+    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+    
+    // Log for debugging
+    if (!useMemory) {
+      logger.info({
+        department: options.department,
+        currentMonthStart,
+        nextMonthStart,
         total,
         completed,
         pending,
         upcoming,
         overdue,
-        progress_percent: progress
-      };
+        progress,
+        totalCalculation: `pending(${pending}) + upcoming(${upcoming}) + completed(${completed}) + overdue(${overdue}) = ${total}`
+      }, 'aggregateStats - Total = Sum of categories (current month only)');
     }
-
-    // Active tasks: start date before today and no submission => overdue; start date on today and no submission => pending
-    // Overdue: task_start_date < today (strictly less than today, matching API logic)
-    // Pending: task_start_date >= today AND task_start_date < tomorrow AND submission_date IS NULL
-    let referenceDay = cutoff ? new Date(cutoff) : new Date();
-    if (Number.isNaN(referenceDay.getTime())) {
-      referenceDay = new Date();
-    }
-    referenceDay.setHours(0, 0, 0, 0);
-    const todayDay = new Date(referenceDay);
-    todayDay.setDate(todayDay.getDate() + 1);
-    const tomorrowDay = new Date(todayDay);
-    tomorrowDay.setDate(tomorrowDay.getDate() + 1);
-
-    const todayDate = formatLocalDateString(todayDay);
-    const tomorrowDate = formatLocalDateString(tomorrowDay);
-
-    const params = [todayDate, tomorrowDate];
-    let departmentClause = '';
-    if (departmentFilter) {
-      params.push(departmentFilter);
-      const index = params.length;
-      departmentClause = `
-        AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) = LOWER(REGEXP_REPLACE(TRIM($${index}), '\\\\s+', ' ', 'g'))`;
-    }
-
-    // Get current month boundaries
-    const currentMonthStart = getCurrentMonthStart();
-    const nextMonthStart = getNextMonthStart();
-    
-    // Build params array: [currentMonthStart, nextMonthStart, todayDate, tomorrowDate, ...department]
-    const monthParams = [currentMonthStart, nextMonthStart, todayDate, tomorrowDate];
-    let paramIndex = monthParams.length;
-    
-    // Add department to params if needed
-    if (departmentFilter) {
-      monthParams.push(departmentFilter);
-      paramIndex = monthParams.length;
-    }
-    
-    let monthClause = ` AND task_start_date::date >= $1::date AND task_start_date::date < $2::date`;
-    let deptClause = '';
-    if (departmentFilter) {
-      deptClause = ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) = LOWER(REGEXP_REPLACE(TRIM($${paramIndex}), '\\\\s+', ' ', 'g'))`;
-    }
-    
-    const sql = `
-      WITH base AS (
-        SELECT
-          lower(trim(status)) AS status,
-          task_start_date,
-          submission_date
-        FROM assign_task
-        WHERE task_start_date IS NOT NULL
-        ${monthClause}
-        ${deptClause}
-      )
-      SELECT
-        (SELECT count(*) FROM base WHERE status = 'yes') AS completed,
-        (SELECT count(*) FROM base WHERE status = 'no') AS not_done,
-        (SELECT count(*) FROM base WHERE submission_date IS NULL AND task_start_date::date < $3::date) AS overdue,
-        (SELECT count(*) FROM assign_task
-          WHERE task_start_date >= $3
-            AND task_start_date < $4
-            AND submission_date IS NULL
-            ${monthClause}
-            ${deptClause}
-        ) AS pending,
-        (SELECT count(*) FROM base WHERE task_start_date::date <= $3::date) AS total;
-    `;
-
-    const result = await query(sql, monthParams);
-    const row = result.rows[0] || {};
-    const total = Number(row.total) || 0;
-    const completed = Number(row.completed) || 0;
-    const pending = Number(row.pending) || 0;
-    const overdue = Number(row.overdue) || 0;
-    
-    // Use countByDate method to get upcoming count (same as count endpoint)
-    const upcoming = await this.countByDate(tomorrowDay, statsOptions);
-    
-    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
 
     return {
       total,
@@ -746,6 +712,13 @@ class AssignTaskRepository {
 
   async countByDate(targetDate, options = {}) {
     if (useMemory) {
+      // Get current month boundaries for filtering
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      nextMonthStart.setHours(0, 0, 0, 0);
+      
       const dayStart = new Date(targetDate);
       dayStart.setHours(0, 0, 0, 0);
       const dayEnd = new Date(dayStart);
@@ -755,7 +728,14 @@ class AssignTaskRepository {
         if (!task || !task.task_start_date) return false;
         const start = new Date(task.task_start_date);
         if (Number.isNaN(start.getTime())) return false;
+        start.setHours(0, 0, 0, 0);
+        
+        // Filter by current month
+        if (start < currentMonthStart || start >= nextMonthStart) return false;
+        
+        // Filter by department
         if (!matchesDepartment(task.department, options.department)) return false;
+        
         return start >= dayStart && start < dayEnd;
       }).length;
       return count;
@@ -765,11 +745,18 @@ class AssignTaskRepository {
     if (!formattedDate) {
       return 0;
     }
-    const params = [formattedDate];
+    
+    // Get current month boundaries
+    const currentMonthStart = getCurrentMonthStart();
+    const nextMonthStart = getNextMonthStart();
+    
+    const params = [formattedDate, currentMonthStart, nextMonthStart];
     let sql = `
       SELECT COUNT(*) as count
       FROM assign_task
       WHERE task_start_date::date = $1::date
+        AND task_start_date::date >= $2::date
+        AND task_start_date::date < $3::date
     `;
 
     if (options.department) {
@@ -781,7 +768,7 @@ class AssignTaskRepository {
           return `LOWER(REGEXP_REPLACE(TRIM($${params.length}), '\\\\s+', ' ', 'g'))`;
         }).join(', ');
         sql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) IN (${placeholders})`;
-      } else if (typeof options.department === 'string') {
+      } else if (typeof options.department === 'string' && options.department.trim() !== '') {
         // Single department
         params.push(options.department);
         sql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) = LOWER(REGEXP_REPLACE(TRIM($${params.length}), '\\\\s+', ' ', 'g'))`;
