@@ -11,6 +11,14 @@ const getEndOfYesterday = () => {
 class DashboardService {
   async summary(options = {}) {
     const cutoff = getEndOfYesterday();
+    // Log the options being passed to aggregateStats for debugging
+    const logger = (await import('../../utils/logger.js')).default;
+    logger.info({
+      department: options.department,
+      departmentType: Array.isArray(options.department) ? 'array' : typeof options.department,
+      departmentCount: Array.isArray(options.department) ? options.department.length : 'N/A',
+      allOptions: options
+    }, 'DashboardService.summary - calling aggregateStats with options');
     return assignTaskService.aggregateStats(cutoff, options);
   }
 

@@ -9,5 +9,6 @@ const router = Router();
 
 router.get('/summary', dashboardController.getSummary);
 router.get('/departments', dashboardController.getDepartments);
+router.get('/debug', dashboardController.debug); // Debug endpoint to check headers
 
 export default router;

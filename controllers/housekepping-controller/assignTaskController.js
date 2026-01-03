@@ -61,6 +61,18 @@ const extractRemark = (body = {}, query = {}) => {
   return found;
 };
 
+// Helper function to decode URL-encoded header values (handles non-ASCII characters like Hindi)
+const decodeHeader = (value) => {
+  if (!value) return '';
+  try {
+    // Decode URL-encoded values (handles non-ASCII characters)
+    return decodeURIComponent(String(value));
+  } catch (e) {
+    // If decoding fails, return original value
+    return String(value);
+  }
+};
+
 const normalizeDepartmentValue = (value) => {
   if (typeof value !== 'string') return '';
   return value.replace(/\s+/g, ' ').trim();
@@ -82,39 +94,90 @@ const parseDepartments = (value) => {
 };
 
 const resolveDepartment = (req) => {
-  // For pending and history endpoints, token is not required
-  // Use query parameter for department filtering
+  // Express lowercases all header names, so 'x-user-role' becomes 'x-user-role'
+  // Try both lowercase and original case for compatibility
+  const role = req.headers['x-user-role'] || req.headers['X-User-Role'] || req.query?.role || '';
+  const roleLower = role ? String(role).toLowerCase() : '';
+  
+  // For user role, prioritize user_access1 from header/query (not from JWT token)
+  if (roleLower === 'user') {
+    // Get user_access1 from header or query parameter (not from JWT token)
+    // Try both lowercase and original case, and decode URL-encoded values
+    const userAccess1Raw = req.headers['x-user-access1'] || req.headers['X-User-Access1'] || req.query?.user_access1 || '';
+    const userAccess1 = decodeHeader(userAccess1Raw);
+    if (userAccess1) {
+      const departments = parseDepartments(userAccess1);
+      if (departments.length > 0) {
+        logger.info({
+          role: 'user',
+          userAccess1,
+          parsedDepartments: departments,
+          departmentCount: departments.length,
+          headers: {
+            'x-user-role': req.headers['x-user-role'],
+            'x-user-access1': req.headers['x-user-access1'],
+            'X-User-Access1': req.headers['X-User-Access1']
+          },
+          note: 'User department resolved from user_access1 header/query'
+        }, 'resolveDepartment - User role with user_access1');
+        return departments;
+      }
+    }
+    // Fallback to user_access if user_access1 is not available
+    const userAccessRaw = req.headers['x-user-access'] || req.headers['X-User-Access'] || req.query?.user_access || '';
+    const userAccess = decodeHeader(userAccessRaw);
+    if (userAccess) {
+      const departments = parseDepartments(userAccess);
+      if (departments.length > 0) {
+        logger.info({
+          role: 'user',
+          userAccess,
+          parsedDepartments: departments,
+          departmentCount: departments.length,
+          note: 'User department resolved from user_access header/query (fallback)'
+        }, 'resolveDepartment - User role with user_access fallback');
+        return departments;
+      }
+    }
+    // User role with no departments - return null to show no data
+    logger.warn({
+      role: 'user',
+      headers: {
+        'x-user-role': req.headers['x-user-role'],
+        'x-user-access1': req.headers['x-user-access1'],
+        'x-user-access': req.headers['x-user-access'],
+        'X-User-Access1': req.headers['X-User-Access1']
+      },
+      allHeaders: Object.keys(req.headers).filter(h => h.toLowerCase().includes('user')),
+      note: 'User role with no department access - returning null (no data)'
+    }, 'resolveDepartment - User role with no departments');
+    return null;
+  }
+
+  // For admin role: Only filter if query parameter explicitly provides a department
+  // If no query parameter, show ALL data (ignore headers - admin should see everything by default)
   const queryDept = req.query?.department;
-  if (queryDept) {
+  if (queryDept && queryDept !== 'all' && String(queryDept).trim() !== '') {
     const departments = parseDepartments(queryDept);
     if (departments.length > 0) {
+      logger.info({
+        role: 'admin',
+        queryDept,
+        parsedDepartments: departments,
+        note: 'Admin explicitly selected department from query - filtering by selected department'
+      }, 'assignTaskController.resolveDepartment - Admin selected department from query');
       return departments;
     }
   }
 
-  // If token exists, use it as fallback (optional)
-  if (req.user) {
-    // For housekeeping, prioritize user_access1 over user_access
-    const userAccess1 = req.user?.user_access1 || req.user?.userAccess1 || '';
-    if (userAccess1) {
-      const departments = parseDepartments(userAccess1);
-      if (departments.length > 0) {
-        return departments;
-      }
-    }
-
-    // Fallback to user_access if user_access1 is not available
-    const userAccess = req.user?.user_access || req.user?.userAccess || req.user?.department || '';
-    if (userAccess) {
-      const departments = parseDepartments(userAccess);
-      if (departments.length > 0) {
-        return departments;
-      }
-    }
-  }
-
-  // No department filter - return null to show all
-  return null;
+  // For admin: If no query parameter, return null to show ALL data
+  // Do NOT use headers (user_access1) for admin - admin should see all data by default
+  logger.info({
+    role: 'admin',
+    queryDept: req.query?.department,
+    note: 'Admin with no explicit department filter - showing ALL data (ignoring headers)'
+  }, 'assignTaskController.resolveDepartment - Admin - No department filter - showing all data');
+  return null; // No department filter - show all data
 };
 
 const extractAttachment = (body = {}, query = {}) => {

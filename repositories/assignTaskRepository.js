@@ -635,17 +635,30 @@ class AssignTaskRepository {
     const pendingResult = await query(pendingSql, pendingParams);
     const pending = Number(pendingResult.rows[0]?.count || 0);
     
-    // Get current month boundaries for completed and total counts (already calculated above)
+    // Get current month boundaries for completed and total counts
+    // IMPORTANT: Use current date (today) as end date, not next month start
+    // This ensures we only count tasks from current month start till today
+    // Reuse todayDate that was already calculated above
+    if (!todayDate) {
+      return {
+        total: 0,
+        completed: 0,
+        pending: 0,
+        upcoming: 0,
+        overdue: 0,
+        progress_percent: 0
+      };
+    }
     
-    // Count completed tasks (status = 'yes') in current month with department filter
+    // Count completed tasks (status = 'yes') in current month TILL TODAY with department filter
     // IMPORTANT: Date parameters must be first, then department parameters
-    const params = [currentMonthStart, nextMonthStart];
+    const params = [currentMonthStart, todayDate];
     let sql = `
       SELECT COUNT(*) as count
       FROM assign_task
       WHERE task_start_date IS NOT NULL
         AND task_start_date::date >= $1::date
-        AND task_start_date::date < $2::date
+        AND task_start_date::date <= $2::date
         AND LOWER(TRIM(status)) = 'yes'
     `;
     
@@ -669,18 +682,44 @@ class AssignTaskRepository {
         completedSql: sql.replace(/\s+/g, ' ').trim(),
         completedParams: params,
         currentMonthStart,
-        nextMonthStart,
+        todayDate,
+        note: 'Completed tasks: current month start till today (not full month)',
         department: options.department
-      }, 'Completed tasks query');
+      }, 'Completed tasks query - current month till today');
     }
     
     const completedResult = await query(sql, params);
     const completed = Number(completedResult.rows[0]?.count || 0);
     
-    // Total = Sum of all visible categories (pending + upcoming + completed + overdue)
-    // This ensures total matches the sum of displayed categories
-    // All counts are already filtered by current month and department
-    const total = pending + upcoming + completed + overdue;
+    // Total = All tasks in current month TILL TODAY (not full month)
+    // This should match: pending + upcoming + completed + overdue
+    // But we also need to count ALL tasks (regardless of status) from month start till today
+    // Let's count total tasks separately to ensure accuracy
+    const totalParams = [currentMonthStart, todayDate];
+    let totalSql = `
+      SELECT COUNT(*) as count
+      FROM assign_task
+      WHERE task_start_date IS NOT NULL
+        AND task_start_date::date >= $1::date
+        AND task_start_date::date <= $2::date
+    `;
+    
+    // Add department filter for total count
+    if (options.department) {
+      if (Array.isArray(options.department) && options.department.length > 0) {
+        const placeholders = options.department.map((_, idx) => {
+          totalParams.push(options.department[idx]);
+          return `LOWER(REGEXP_REPLACE(TRIM($${totalParams.length}), '\\\\s+', ' ', 'g'))`;
+        }).join(', ');
+        totalSql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) IN (${placeholders})`;
+      } else if (typeof options.department === 'string' && options.department.trim() !== '') {
+        totalParams.push(options.department);
+        totalSql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) = LOWER(REGEXP_REPLACE(TRIM($${totalParams.length}), '\\\\s+', ' ', 'g'))`;
+      }
+    }
+    
+    const totalResult = await query(totalSql, totalParams);
+    const total = Number(totalResult.rows[0]?.count || 0);
     
     const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
     
@@ -689,15 +728,17 @@ class AssignTaskRepository {
       logger.info({
         department: options.department,
         currentMonthStart,
-        nextMonthStart,
+        todayDate,
+        note: 'Total = All tasks from current month start till today (not full month)',
         total,
         completed,
         pending,
         upcoming,
         overdue,
         progress,
-        totalCalculation: `pending(${pending}) + upcoming(${upcoming}) + completed(${completed}) + overdue(${overdue}) = ${total}`
-      }, 'aggregateStats - Total = Sum of categories (current month only)');
+        totalCalculation: `Total tasks from ${currentMonthStart} to ${todayDate} = ${total}`,
+        categorySum: `pending(${pending}) + upcoming(${upcoming}) + completed(${completed}) + overdue(${overdue}) = ${pending + upcoming + completed + overdue}`
+      }, 'aggregateStats - Current month till today');
     }
 
     return {
