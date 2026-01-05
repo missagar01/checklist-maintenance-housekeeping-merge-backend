@@ -33,6 +33,20 @@ All `/api/settings` endpoints manage users, departments, and system access flags
 - **PUT** `/api/settings/users/:id`
 - Body: same shape as create (omit `password` to leave it unchanged).
 - Response: updated user row.
+- Notes:
+  - You can send any subset of fields (no required keys) and the controller will update only those columns.
+  - Fields that map to long text or lists such as `user_access1` and `system_access` may be provided as arrays; the backend joins them with commas before saving.
+  - Example JSON:
+    ```json
+    {
+      "user_access1": [
+        "Admin Office - First Floor",
+        "CCM",
+        "Plant Area"
+      ],
+      "system_access": "HOUSEKEEPING"
+    }
+    ```
 
 ### Delete a user
 - **DELETE** `/api/settings/users/:id`

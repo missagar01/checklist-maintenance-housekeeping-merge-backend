@@ -114,107 +114,161 @@ export const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const {
-      user_name,
-      password,
-      email_id,
-      number,
-      employee_id,
-      role,
-      status,
-      user_access,
-      department,
-      given_by,
-      leave_date,
-      leave_end_date,
-      remark,
-      user_access1,
-      system_access,
-      page_access
-    } = req.body;
-
-    
-    // Truncate long values to prevent database errors
-    const truncateString = (str, maxLength = 500) => {
-      if (!str || typeof str !== 'string') return str || '';
-      return str.length > maxLength ? str.substring(0, maxLength) : str;
+    const parsePayload = (body) => {
+      if (!body) return {};
+      if (typeof body === "object") return body;
+      if (typeof body === "string") {
+        try {
+          return JSON.parse(body);
+        } catch (err) {
+          console.warn("Unable to parse request body as JSON", err.message);
+          return {};
+        }
+      }
+      return {};
     };
 
-    // Truncate fields that might exceed database limits
-    const safeUserAccess1 = truncateString(user_access1, 500);
-    const safeSystemAccess = truncateString(system_access, 500);
-    const safePageAccess = truncateString(page_access, 500);
-    const safeUserAccess = truncateString(user_access, 500);
-    const safeRemark = truncateString(remark, 500);
+    const payload = parsePayload(req.body);
+    const normalizedPayload = Array.isArray(payload)
+      ? payload.reduce((acc, value) => ({ ...acc, ...value }), {})
+      : payload;
 
-    // Build query dynamically based on whether password is provided
-    let query;
-    let values;
-
-    if (password && password.trim() !== '') {
-      // Include password in update
-      query = `
-        UPDATE users SET
-          user_name = $1,
-          password = $2,
-          email_id = $3,
-          number = $4,
-          employee_id = $5,
-          role = $6,
-          status = $7,
-          user_access = $8,
-          department = $9,
-          given_by = $10,
-          leave_date = $11,
-          leave_end_date = $12,
-          remark = $13,
-          user_access1 = $14,
-          system_access = $15,
-          page_access = $16
-        WHERE id = $17
-        RETURNING *
-      `;
-      values = [
-        user_name, password, email_id, number, employee_id,
-        role, status, safeUserAccess, department, given_by,
-        leave_date, leave_end_date, safeRemark, safeUserAccess1, safeSystemAccess, safePageAccess, id
-      ];
-    } else {
-      // Exclude password from update
-      query = `
-        UPDATE users SET
-          user_name = $1,
-          email_id = $2,
-          number = $3,
-          employee_id = $4,
-          role = $5,
-          status = $6,
-          user_access = $7,
-          department = $8,
-          given_by = $9,
-          leave_date = $10,
-          leave_end_date = $11,
-          remark = $12,
-          user_access1 = $13,
-          system_access = $14,
-          page_access = $15
-        WHERE id = $16
-        RETURNING *
-      `;
-      values = [
-        user_name, email_id, number, employee_id,
-        role, status, safeUserAccess, department, given_by,
-        leave_date, leave_end_date, safeRemark, safeUserAccess1, safeSystemAccess, safePageAccess, id
-      ];
+    const existingResult = await pool.query(
+      `
+      SELECT *
+      FROM users
+      WHERE id = $1
+    `,
+      [id]
+    );
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
     }
+
+    const normalizeString = (value, { maxLength = 500, trim = true } = {}) => {
+      if (value === null) return null;
+      if (value === undefined) return undefined;
+      if (Array.isArray(value)) {
+        value = value.map(v => (typeof v === "string" ? v : String(v))).join(", ");
+      }
+      let str = typeof value === "string" ? value : String(value);
+      if (trim) {
+        str = str.trim();
+      }
+      if (maxLength && str.length > maxLength) {
+        return str.substring(0, maxLength);
+      }
+      return str;
+    };
+
+    const sanitizePassword = (value) => {
+      if (value === null || value === undefined) return undefined;
+      const trimmed = typeof value === "string" ? value.trim() : String(value).trim();
+      return trimmed === "" ? undefined : trimmed;
+    };
+
+    const fieldMap = {
+      username: "user_name",
+      user_name: "user_name",
+      password: "password",
+      email: "email_id",
+      email_id: "email_id",
+      phone: "number",
+      number: "number",
+      department: "department",
+      givenBy: "given_by",
+      given_by: "given_by",
+      employee_id: "employee_id",
+      role: "role",
+      status: "status",
+      user_access: "user_access",
+      user_access1: "user_access1",
+      system_access: "system_access",
+      page_access: "page_access",
+      remark: "remark",
+      leave_date: "leave_date",
+      leave_end_date: "leave_end_date"
+    };
+
+    const sanitizeRules = {
+      user_name: { maxLength: 500 },
+      email_id: { maxLength: 500 },
+      number: { maxLength: 500 },
+      department: { maxLength: 500 },
+      given_by: { maxLength: 500 },
+      role: { maxLength: 100 },
+      status: { maxLength: 100 },
+      user_access: { maxLength: 500 },
+      user_access1: { maxLength: 100000 },
+      system_access: { maxLength: 500 },
+      page_access: { maxLength: 500 },
+      remark: { maxLength: 1000 },
+      employee_id: { maxLength: 500 },
+      leave_date: {},
+      leave_end_date: {}
+    };
+
+    const updates = {};
+
+    for (const [bodyKey, columnName] of Object.entries(fieldMap)) {
+      if (!Object.prototype.hasOwnProperty.call(normalizedPayload, bodyKey)) {
+        continue;
+      }
+      const rawValue = normalizedPayload[bodyKey];
+      if (columnName === "password") {
+        const sanitized = sanitizePassword(rawValue);
+        if (sanitized === undefined) {
+          continue;
+        }
+        updates[columnName] = sanitized;
+        continue;
+      }
+
+      const rules = sanitizeRules[columnName] || { maxLength: 500 };
+      const sanitized = normalizeString(rawValue, rules);
+
+      if (sanitized === undefined) {
+        continue;
+      }
+
+      updates[columnName] = sanitized;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No valid fields provided for update" });
+    }
+
+    const columns = [];
+    const values = [];
+    let placeholderIndex = 1;
+
+    for (const [column, value] of Object.entries(updates)) {
+      columns.push(`${column} = $${placeholderIndex++}`);
+      values.push(value);
+    }
+
+    const query = `
+      UPDATE users
+      SET ${columns.join(", ")}
+      WHERE id = $${placeholderIndex}
+      RETURNING *
+    `;
+    values.push(id);
 
     const result = await pool.query(query, values);
 
     res.json(result.rows[0]);
 
   } catch (error) {
-    console.error("❌ Error updating user:", error);
-    res.status(500).json({ error: "Database error" });
+    console.error("❌ Error in updateUser controller:", error);
+    console.error("Error details:", {
+      message: error.message,
+      stack: error.stack
+    });
+    return res.status(500).json({
+      error: "Server error",
+      message: error.message || "Failed to update user"
+    });
   }
 };
 
@@ -356,11 +410,6 @@ export const updateDepartment = async (req, res) => {
     res.status(500).json({ error: "Database error" });
   }
 };
-
-
-
-
-
 
 
 export const patchSystemAccess = async (req, res) => {
