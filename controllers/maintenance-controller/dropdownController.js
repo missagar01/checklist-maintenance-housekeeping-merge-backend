@@ -1,9 +1,10 @@
 // import pool from "../config/db.js";
-import { maintenancePool } from "../../config/db.js";
+import { maintenancePool, pool } from "../../config/db.js";
 
 export const fetchDropdownData = async (req, res) => {
   try {
     const { department } = req.query;
+    const normalizedDepartment = department?.trim();
 
     // 1️⃣ Fetch ALL dropdown data for global lists
     const allQuery = `
@@ -26,7 +27,7 @@ export const fetchDropdownData = async (req, res) => {
     const priority = [...new Set(allRows.map(r => r.priority).filter(Boolean))];
 
     // 2️⃣ If no department selected → return ALL except Doer Name
-    if (!department) {
+    if (!normalizedDepartment) {
       return res.status(200).json({
         success: true,
         data: {
@@ -39,13 +40,16 @@ export const fetchDropdownData = async (req, res) => {
       });
     }
 
-    // 3️⃣ Filter ONLY doer_name by department1
+    // 3️⃣ Filter ONLY doer_name by department from users table
     const doerQuery = `
-      SELECT DISTINCT doer_name
-      FROM master
-      WHERE LOWER(department1) = LOWER($1)
+      SELECT DISTINCT user_name AS doer_name
+      FROM users
+      WHERE (department IS NOT NULL AND department <> '')
+        AND LOWER(department) = LOWER($1)
+        AND user_name IS NOT NULL AND user_name <> ''
+      ORDER BY user_name ASC
     `;
-    const doerResult = await maintenancePool.query(doerQuery, [department]);
+    const doerResult = await pool.query(doerQuery, [normalizedDepartment]);
     const doerName = doerResult.rows.map(r => r.doer_name).filter(Boolean);
 
     res.status(200).json({
@@ -53,7 +57,7 @@ export const fetchDropdownData = async (req, res) => {
       data: {
         departments,
         givenBy,     // All values (not filtered)
-        doerName,    // Filtered by department1
+        doerName,    // Filtered by department from users table
         taskStatus,  // All values
         priority,    // All values
       },
