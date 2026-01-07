@@ -1,6 +1,5 @@
 import { assignTaskService } from '../../services/housekepping-services/assignTaskServices.js';
 import { ApiError } from '../../middleware/errorHandler.js';
-import { notifyAssignmentUpdate } from '../../services/housekepping-services/whatsappServices.js';
 import logger from '../../utils/logger.js'
 
 const ALLOWED_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly', 'one-time'];
@@ -288,8 +287,6 @@ const assignTaskController = {
       const prepared = prepareUpdatePayload(req.body);
       const updated = await assignTaskService.update(req.params.id, prepared);
       if (!updated) throw new ApiError(404, 'Assignment not found');
-      // Fire-and-forget notification; internal errors are logged inside the notifier.
-      notifyAssignmentUpdate(updated);
       const meta = toUploadedMeta(req, req.file);
       res.json(meta ? { ...updated, uploaded_image: meta } : updated);
     } catch (err) {
