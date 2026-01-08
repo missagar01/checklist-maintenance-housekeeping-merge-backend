@@ -193,39 +193,7 @@ export const getCompletedTask = async (req, res) => {
   }
 };
 
-// export const getPendingTask = async (req, res) => {
-//   try {
-//     const { dashboardType, staffFilter, departmentFilter, role, username } = req.query;
 
-//     const table = dashboardType;
-    
-//     // Get current month range
-//     const { firstDayStr, currentDayStr } = getCurrentMonthRange();
-
-//     let query = `
-//       SELECT COUNT(*) AS count
-//       FROM ${table}
-//       WHERE task_start_date >= '${firstDayStr} 00:00:00'
-//       AND task_start_date <= '${currentDayStr} 23:59:59'
-//       AND submission_date IS NULL
-//     `;
-
-//     if (dashboardType === "checklist") {
-//       query += ` AND (status IS NULL OR status <> 'yes') `;
-//     }
-
-//     if (role === "user" && username) query += ` AND LOWER(name)=LOWER('${username}')`;
-//     if (role === "admin" && staffFilter !== "all") query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
-//     if (dashboardType === "checklist" && departmentFilter !== "all")
-//       query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
-
-//     const result = await pool.query(query);
-//     res.json(Number(result.rows[0].count));
-//   } catch (err) {
-//     console.error("PENDING ERROR:", err.message);
-//     res.status(500).json({ error: "Error fetching pending tasks" });
-//   }
-// };
 
 
 export const getPendingTask = async (req, res) => {
@@ -422,8 +390,12 @@ export const getOverdueTask = async (req, res) => {
 export const getUniqueDepartments = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT DISTINCT department FROM users 
-      WHERE department IS NOT NULL AND department!=''
+      SELECT DISTINCT department
+FROM users
+WHERE department IS NOT NULL
+  AND department != ''
+ORDER BY department ASC;
+
     `);
 
     res.json(result.rows.map(d => d.department));
@@ -437,11 +409,12 @@ export const getStaffByDepartment = async (req, res) => {
   try {
     const { department } = req.query;
 
-    let query = `SELECT user_name, user_access FROM users`;
+    // Exclude admin users - simple comparison that works with text/varchar/enum
+    let query = `SELECT user_name, user_access, role FROM users WHERE role IS NULL OR role != 'admin'`;
 
     const result = await pool.query(query);
 
-    let staff = result.rows;
+    let staff = result.rows || [];
 
     if (department && department !== "all") {
       staff = staff.filter(u =>
@@ -450,10 +423,16 @@ export const getStaffByDepartment = async (req, res) => {
       );
     }
 
-    res.json(staff.map(s => s.user_name));
+    // Map to user names and filter out any null/undefined values
+    const staffNames = staff
+      .map(s => s?.user_name)
+      .filter(name => name != null && name.trim() !== "");
+
+    res.json(staffNames);
   } catch (err) {
     console.error("STAFF BY DEPARTMENT ERROR:", err.message);
-    res.status(500).json({ error: "Error fetching staff by department" });
+    console.error("Full error:", err);
+    res.status(500).json({ error: "Error fetching staff by department", details: err.message });
   }
 };
 
