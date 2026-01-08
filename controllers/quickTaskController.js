@@ -206,12 +206,18 @@ export const updateChecklistTask = async (updatedTask, originalTask) => {
 
     if (shouldUpdate(updatedTask.enable_reminder)) {
       updates.push(`enable_reminder = $${paramIndex++}`);
-      values.push(updatedTask.enable_reminder);
+      // Convert to lowercase to match database enum (yes/no)
+      // Database enum expects lowercase "yes" or "no"
+      const reminderValue = String(updatedTask.enable_reminder || '').trim().toLowerCase();
+      values.push(reminderValue === 'yes' ? 'yes' : 'no');
     }
 
     if (shouldUpdate(updatedTask.require_attachment)) {
       updates.push(`require_attachment = $${paramIndex++}`);
-      values.push(updatedTask.require_attachment);
+      // Convert to lowercase to match database enum (yes/no)
+      // Database enum expects lowercase "yes" or "no"
+      const attachmentValue = String(updatedTask.require_attachment || '').trim().toLowerCase();
+      values.push(attachmentValue === 'yes' ? 'yes' : 'no');
     }
 
     if (shouldUpdate(updatedTask.remark)) {
