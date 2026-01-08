@@ -157,41 +157,91 @@ export const deleteDelegationTasks = async (taskIds) => {
 
 export const updateChecklistTask = async (updatedTask, originalTask) => {
   try {
+    // Validate that task_id is provided
+    if (!updatedTask.task_id) {
+      throw new Error("task_id is required for updating a task");
+    }
+
+    // Build dynamic update query based on provided fields
+    // Only update fields that are explicitly provided AND not empty strings
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    // Helper function to check if value should be updated
+    const shouldUpdate = (value) => {
+      return value !== undefined && value !== null && value !== '';
+    };
+
+    // Add fields to update if they are provided and not empty
+    if (shouldUpdate(updatedTask.department)) {
+      updates.push(`department = $${paramIndex++}`);
+      values.push(updatedTask.department);
+    }
+
+    if (shouldUpdate(updatedTask.given_by)) {
+      updates.push(`given_by = $${paramIndex++}`);
+      values.push(updatedTask.given_by);
+    }
+
+    if (shouldUpdate(updatedTask.name)) {
+      updates.push(`name = $${paramIndex++}`);
+      values.push(updatedTask.name);
+    }
+
+    if (shouldUpdate(updatedTask.task_description)) {
+      updates.push(`task_description = $${paramIndex++}`);
+      values.push(updatedTask.task_description);
+    }
+
+    if (shouldUpdate(updatedTask.task_start_date)) {
+      updates.push(`task_start_date = $${paramIndex++}`);
+      values.push(updatedTask.task_start_date);
+    }
+
+    if (shouldUpdate(updatedTask.frequency)) {
+      updates.push(`frequency = $${paramIndex++}`);
+      values.push(updatedTask.frequency);
+    }
+
+    if (shouldUpdate(updatedTask.enable_reminder)) {
+      updates.push(`enable_reminder = $${paramIndex++}`);
+      values.push(updatedTask.enable_reminder);
+    }
+
+    if (shouldUpdate(updatedTask.require_attachment)) {
+      updates.push(`require_attachment = $${paramIndex++}`);
+      values.push(updatedTask.require_attachment);
+    }
+
+    if (shouldUpdate(updatedTask.remark)) {
+      updates.push(`remark = $${paramIndex++}`);
+      values.push(updatedTask.remark);
+    }
+
+    if (updates.length === 0) {
+      throw new Error("No fields to update - all fields are empty");
+    }
+
+    // Add task_id for WHERE clause
+    values.push(updatedTask.task_id);
+
     const sql = `
       UPDATE checklist
-      SET 
-        department = $1,
-        given_by = $2,
-        name = $3,
-        task_description = $4,
-        enable_reminder = $5,
-        require_attachment = $6,
-        remark = $7
-      WHERE department = $8
-      AND name = $9
-      AND task_description = $10
-      AND submission_date IS NULL
+      SET ${updates.join(', ')}
+      WHERE task_id = $${paramIndex}
       RETURNING *;
     `;
 
-    const values = [
-      updatedTask.department,
-      updatedTask.given_by,
-      updatedTask.name,
-      updatedTask.task_description,
-      updatedTask.enable_reminder,
-      updatedTask.require_attachment,
-      updatedTask.remark,
-
-      originalTask.department,
-      originalTask.name,
-      originalTask.task_description
-    ];
-
     const res = await pool.query(sql, values);
+    
+    if (res.rows.length === 0) {
+      throw new Error(`Task with task_id ${updatedTask.task_id} not found`);
+    }
+
     return res.rows;
   } catch (err) {
-    console.log(err);
+    console.error("Error updating checklist task:", err);
     throw err;
   }
 };

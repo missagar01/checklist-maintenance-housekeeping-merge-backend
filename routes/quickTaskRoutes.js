@@ -43,8 +43,23 @@ router.post("/delete-delegation", async (req, res) => {
 });
 
 router.post("/update-checklist", async (req, res) => {
-  const result = await updateChecklistTask(req.body.updatedTask, req.body.originalTask);
-  res.json(result);
+  try {
+    const { updatedTask, originalTask } = req.body;
+    
+    if (!updatedTask) {
+      return res.status(400).json({ error: "updatedTask is required" });
+    }
+
+    if (!updatedTask.task_id) {
+      return res.status(400).json({ error: "task_id is required in updatedTask" });
+    }
+
+    const result = await updateChecklistTask(updatedTask, originalTask);
+    res.json(result);
+  } catch (error) {
+    console.error("Error in update-checklist route:", error);
+    res.status(500).json({ error: error.message || "Failed to update checklist task" });
+  }
 });
 
 router.get("/users", async (req, res) => {
