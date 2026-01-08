@@ -11,6 +11,7 @@ import {
   getGivenByData,
   createDepartment,
   updateDepartment,
+  deleteDepartment,
   patchSystemAccess
 } from "../controllers/settingController.js";
 
@@ -29,6 +30,7 @@ router.get("/departments-only", getDepartmentsOnly); // Gets only unique departm
 router.get("/given-by", getGivenByData); // Gets only unique given_by values
 router.post("/departments", createDepartment);
 router.put("/departments/:id", updateDepartment);
+router.delete("/departments/:id", deleteDepartment);
 router.patch("/users/:id/system_access", patchSystemAccess);
 
 export default router;

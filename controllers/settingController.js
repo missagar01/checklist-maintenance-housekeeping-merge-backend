@@ -373,41 +373,156 @@ export const createDepartment = async (req, res) => {
   try {
     const { name, givenBy } = req.body;
 
-    const result = await pool.query(`
-      INSERT INTO users (department, given_by)
-      VALUES ($1, $2)
-      RETURNING *
-    `, [name, givenBy]);
+    // Validate input
+    if (!name || name.trim() === "") {
+      return res.status(400).json({ error: "Department name is required" });
+    }
 
-    res.json(result.rows[0]);
+    const departmentName = name.trim();
+    const givenByValue = givenBy?.trim() || null;
+
+    // Check if department already exists
+    const existingDept = await pool.query(
+      `SELECT id FROM users WHERE department = $1 AND (given_by = $2 OR ($2 IS NULL AND given_by IS NULL)) LIMIT 1`,
+      [departmentName, givenByValue]
+    );
+
+    if (existingDept.rows.length > 0) {
+      return res.status(409).json({ error: "Department with this name and given_by already exists" });
+    }
+
+    // Create a minimal user entry for the department
+    // Set user_access to match department to keep them synchronized
+    const result = await pool.query(`
+      INSERT INTO users (
+        user_name, 
+        password, 
+        email_id, 
+        department, 
+        given_by, 
+        user_access, 
+        role, 
+        status
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `, [
+      `DEPT_${departmentName}_${Date.now()}`, // Unique user_name
+      null, // No password for department entries
+      null, // No email
+      departmentName,
+      givenByValue,
+      departmentName, // Set user_access to match department
+      'user', // Default role
+      'active' // Default status
+    ]);
+
+    res.status(201).json(result.rows[0]);
 
   } catch (error) {
-    console.log("❌ Error creating dept:", error);
-    res.status(500).json({ error: "Database error" });
+    console.error("❌ Error creating dept:", error);
+    console.error("Error details:", error.message);
+    
+    // Handle specific database errors
+    if (error.code === '23505') { // Unique constraint violation
+      return res.status(409).json({ error: "Department already exists" });
+    }
+    
+    res.status(500).json({ error: "Database error", details: error.message });
   }
 };
 
 
-/*******************************
- * 9) UPDATE DEPARTMENT
- *******************************/
 export const updateDepartment = async (req, res) => {
   try {
     const { id } = req.params;
     const { department, given_by } = req.body;
 
-    const result = await pool.query(`
+    // Validate input
+    if (!id) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+
+    if (!department && !given_by) {
+      return res.status(400).json({ error: "At least department or given_by must be provided" });
+    }
+
+    // Build dynamic update query based on provided fields
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (department !== undefined && department !== null) {
+      updates.push(`department = $${paramIndex++}`);
+      values.push(department);
+    }
+
+    if (given_by !== undefined && given_by !== null) {
+      updates.push(`given_by = $${paramIndex++}`);
+      values.push(given_by);
+    }
+
+    // Add user_access to match department (as they seem to be linked)
+    if (department !== undefined && department !== null) {
+      updates.push(`user_access = $${paramIndex++}`);
+      values.push(department);
+    }
+
+    // Add the ID parameter
+    values.push(id);
+
+    const query = `
       UPDATE users 
-      SET department = $1, given_by = $2
-      WHERE id = $3
+      SET ${updates.join(', ')}
+      WHERE id = $${paramIndex}
       RETURNING *
-    `, [department, given_by, id]);
+    `;
+
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
     res.json(result.rows[0]);
 
   } catch (error) {
     console.error("❌ Error updating dept:", error);
-    res.status(500).json({ error: "Database error" });
+    console.error("Error details:", error.message);
+    res.status(500).json({ error: "Database error", details: error.message });
+  }
+};
+
+/*******************************
+ * DELETE DEPARTMENT
+ *******************************/
+export const deleteDepartment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ error: "Department ID is required" });
+    }
+
+    // Check if department exists
+    const checkResult = await pool.query(
+      `SELECT id, department FROM users WHERE id = $1`,
+      [id]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: "Department not found" });
+    }
+
+    // Delete the department entry
+    await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
+
+    res.json({ message: "Department deleted successfully", id });
+
+  } catch (error) {
+    console.error("❌ Error deleting department:", error);
+    console.error("Error details:", error.message);
+    res.status(500).json({ error: "Database error", details: error.message });
   }
 };
 
