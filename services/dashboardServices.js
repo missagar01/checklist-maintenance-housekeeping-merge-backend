@@ -16,6 +16,17 @@ const getToday = () => {
   };
 };
 
+const getTomorrow = () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const d = tomorrow.toISOString().split("T")[0];
+  return {
+    date: d,
+    start: dayStart(d),
+    end: dayEnd(d),
+  };
+};
+
 // ─────────────────────────────────────────────
 // MAIN DATA
 // ─────────────────────────────────────────────
@@ -272,6 +283,54 @@ export const countPendingOrDelayTaskService = async ({
   }
 };
 
+export const countUpcomingTaskService = async ({
+  dashboardType,
+  staffFilter = "all",
+  departmentFilter = "all",
+  role = "admin",
+  username = null,
+}) => {
+  try {
+    const { start: tomorrowStart, end: tomorrowEnd } = getTomorrow();
+    const table = getTableName(dashboardType);
+
+    let conditions = [`task_start_date BETWEEN $1 AND $2`];
+    let params = [tomorrowStart, tomorrowEnd];
+    let i = 3;
+
+    conditions.push(`submission_date IS NULL`);
+
+    if (dashboardType === "checklist") {
+      conditions.push(`(status IS NULL OR status <> 'Yes')`);
+    }
+
+    if (role === "user" && username) {
+      conditions.push(`LOWER(name) = LOWER($${i})`);
+      params.push(username);
+      i++;
+    } else if (staffFilter && staffFilter !== "all") {
+      conditions.push(`LOWER(name) = LOWER($${i})`);
+      params.push(staffFilter);
+      i++;
+    }
+
+    if (dashboardType === "checklist" && departmentFilter && departmentFilter !== "all") {
+      conditions.push(`LOWER(department) = LOWER($${i})`);
+      params.push(departmentFilter);
+      i++;
+    }
+
+    const where = `WHERE ${conditions.join(" AND ")}`;
+
+    const query = `SELECT COUNT(*) FROM ${table} ${where}`;
+    const { rows } = await pool.query(query, params);
+
+    return Number(rows[0]?.count || 0);
+  } catch (error) {
+    throw new Error(error.message);
+  }
+};
+
 // ─────────────────────────────────────────────
 // OVERDUE COUNT
 // ─────────────────────────────────────────────
@@ -333,6 +392,7 @@ export const getDashboardSummaryService = async (params) => {
   const completedTasks = await countCompleteTaskService(params);
   const pendingTasks = await countPendingOrDelayTaskService(params);
   const overdueTasks = await countOverDueORExtendedTaskService(params);
+  const upcomingTasks = await countUpcomingTaskService(params);
 
   const completionRate =
     totalTasks > 0 ? Number(((completedTasks / totalTasks) * 100).toFixed(1)) : 0;
@@ -343,6 +403,7 @@ export const getDashboardSummaryService = async (params) => {
     pendingTasks,
     overdueTasks,
     completionRate,
+    upcomingTasks,
   };
 };
 

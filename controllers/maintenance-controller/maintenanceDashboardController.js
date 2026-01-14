@@ -89,9 +89,9 @@ export const getDashboardStats = async (req, res) => {
         totalTasks: summary.totalTasks,
         completedTasks: summary.completedTasks,
         pendingTasks: summary.pendingTasks,
-        notDone: summary.notDone,
         overdueTasks: summary.overdueTasks,
         completionRate: summary.completionRate,
+        upcomingTasks: summary.upcomingTasks,
         total_maintenance_cost: totalMaintenanceCost,
       }
     });

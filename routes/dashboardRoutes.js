@@ -4,6 +4,7 @@ import {
   getTotalTask,
   getCompletedTask,
   getPendingTask,
+
   getPendingToday,
   getCompletedToday,
   getOverdueTask,
@@ -11,10 +12,11 @@ import {
   getStaffByDepartment,
   getChecklistByDateRange,
   getChecklistStatsByDate,
-  getNotDoneTask,
+  getUpcomingTask,
   getDashboardDataCount,
   getChecklistDateRangeCount,
-  getStaffTaskSummary
+  getStaffTaskSummary,
+  getNotDoneTask
 } from "../controllers/dashboardController.js";
 
 const router = express.Router();
@@ -29,9 +31,11 @@ router.get("/pending", getPendingTask);
 router.get("/pendingtoday", getPendingToday);
 router.get("/completedtoday", getCompletedToday);
 router.get("/overdue", getOverdueTask);
-router.get("/not-done", getNotDoneTask);
+router.get("/upcoming", getUpcomingTask);
+router.get("/notdone", getNotDoneTask);
 
-// FILTER LISTS
+
+// // FILTER LISTS
 router.get("/departments", getUniqueDepartments);
 router.get("/staff", getStaffByDepartment);
 router.get("/staff-summary", getStaffTaskSummary);

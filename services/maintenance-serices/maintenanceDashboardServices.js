@@ -13,6 +13,17 @@ const getToday = () => {
   };
 };
 
+const getTomorrow = () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const d = tomorrow.toISOString().split("T")[0];
+  return {
+    date: d,
+    start: dayStart(d),
+    end: dayEnd(d),
+  };
+};
+
 
 
 // ─────────────────────────────────────────────
@@ -55,7 +66,6 @@ export const fetchMaintenanceDashboardDataService = async ({
       params.push(departmentFilter);
       i++;
     }
-
     // Task view filters
     if (taskView === "recent") {
       // Today's tasks
@@ -239,24 +249,22 @@ export const countPendingMaintenanceTaskService = async ({
   }
 };
 
-// ─────────────────────────────────────────────
-// NOT DONE COUNT (Absent Day's tasks)
-// ─────────────────────────────────────────────
-export const countNotDoneMaintenanceTaskService = async ({
+export const countUpcomingMaintenanceTaskService = async ({
   staffFilter = "all",
   departmentFilter = "all",
   role = "admin",
   username = null,
 }) => {
   try {
-    const { date: todayDate } = getToday();
+    const { start: tomorrowStart, end: tomorrowEnd } = getTomorrow();
 
     let conditions = [
-      `"Task_Start_Date"::date < $1::date`,
+      `"Task_Start_Date" >= $1`,
+      `"Task_Start_Date" <= $2`,
       `"Actual_Date" IS NULL`
     ];
-    let params = [todayDate];
-    let i = 2;
+    let params = [tomorrowStart, tomorrowEnd];
+    let i = 3;
 
     if (role === "user" && username) {
       conditions.push(`LOWER("Doer_Name") = LOWER($${i})`);
@@ -281,6 +289,51 @@ export const countNotDoneMaintenanceTaskService = async ({
     return Number(rows[0]?.count || 0);
   } catch (error) {
     throw new Error(error.message);
+  }
+};
+
+// ─────────────────────────────────────────────
+// NOT DONE COUNT (Absent Day's tasks)
+// ─────────────────────────────────────────────
+export const countNotDoneMaintenanceTaskService = async ({
+  staffFilter = "all",
+  departmentFilter = "all",
+  role = "admin",
+  username = null,
+}) => {
+  try {
+    // Count where Status is 'No' (or equivalent for Not Done)
+    // Assuming 'Status' column exists as per request "jiska status NO hai"
+
+    let conditions = [`LOWER("Status") = 'no'`];
+    let params = [];
+    let i = 1;
+
+    if (role === "user" && username) {
+      conditions.push(`LOWER("Doer_Name") = LOWER($${i})`);
+      params.push(username);
+      i++;
+    } else if (staffFilter && staffFilter !== "all") {
+      conditions.push(`LOWER("Doer_Name") = LOWER($${i})`);
+      params.push(staffFilter);
+      i++;
+    }
+
+    if (departmentFilter && departmentFilter !== "all") {
+      conditions.push(`LOWER("machine_department") = LOWER($${i})`);
+      params.push(departmentFilter);
+      i++;
+    }
+
+    const where = `WHERE ${conditions.join(" AND ")}`;
+    const query = `SELECT COUNT(*) FROM maintenance_task_assign ${where}`;
+    const { rows } = await maintenancePool.query(query, params);
+
+    return Number(rows[0]?.count || 0);
+  } catch (error) {
+    // Fallback if Status column doesn't exist or error
+    console.error("Error counting Not Done maintenance tasks:", error.message);
+    return 0;
   }
 };
 
@@ -337,8 +390,9 @@ export const getMaintenanceDashboardSummaryService = async (params) => {
   const completedTasks = await countCompleteMaintenanceTaskService(params);
   const pendingTasks = await countPendingMaintenanceTaskService(params);
   const notDoneTasks = await countNotDoneMaintenanceTaskService(params);
-  const overdueTasks = await countOverDueMaintenanceTaskService(params);
+  const upcomingTasks = await countUpcomingMaintenanceTaskService(params);
 
+  console.log(upcomingTasks)
   const completionRate =
     totalTasks > 0 ? Number(((completedTasks / totalTasks) * 100).toFixed(1)) : 0;
 
@@ -346,9 +400,10 @@ export const getMaintenanceDashboardSummaryService = async (params) => {
     totalTasks,
     completedTasks,
     pendingTasks,
-    notDone: notDoneTasks,
     overdueTasks,
     completionRate,
+    upcomingTasks,
+    notDoneTasks
   };
 };
 
