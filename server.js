@@ -11,6 +11,7 @@ import staffTasksRoutes from "./routes/staffTasksRoutes.js";
 import quickTaskRoutes from "./routes/quickTaskRoutes.js";
 import loginRoutes from "./routes/loginRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
+import userRoutes from "./routes/userRoutes.js"
 
 import maintenanceRoutes from "./routes/maintenanceRoutes.js";
 import maintenanceTaskRoutes from "./routes/maintenance-routes/maintenanceTaskRoutes.js";
@@ -47,6 +48,7 @@ app.use("/api/assign-task", assignTaskRoutes);
 app.use("/api/checklist", checklistRoutes);
 app.use("/api", delegationRoutes);
 app.use("/api/settings", settingRoutes);
+app.use("/api/settings",userRoutes);
 app.use("/api/staff-tasks", staffTasksRoutes);
 app.use("/api/tasks", quickTaskRoutes);
 app.use("/api/login", loginRoutes);
