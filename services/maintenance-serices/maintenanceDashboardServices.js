@@ -327,7 +327,7 @@ export const countNotDoneMaintenanceTaskService = async ({
     // AND within current month range
 
     let conditions = [
-      `LOWER("Status") = 'no'`,
+      `LOWER("Task_Status") = 'no'`,
       `"Task_Start_Date" >= $1`,
       `"Task_Start_Date" <= $2`
     ];

@@ -1206,7 +1206,7 @@ export const getNotDoneTask = async (req, res) => {
         ({ source, conditions, params }) => {
           // Add Not Done logic
           if (source.name === "maintenance") {
-            conditions.push(`LOWER("Status") = 'no'`);
+            conditions.push(`LOWER("Task_Status") = 'no'`);
           } else {
             conditions.push(`LOWER(status::text) = 'no'`);
           }
@@ -1226,7 +1226,7 @@ export const getNotDoneTask = async (req, res) => {
       let query = `
          SELECT COUNT(*) AS count
          FROM maintenance_task_assign
-         WHERE LOWER("Status") = 'no'
+         WHERE LOWER("Task_Status") = 'no'
        `;
 
       if (role === "admin" && staffFilter !== "all") {
