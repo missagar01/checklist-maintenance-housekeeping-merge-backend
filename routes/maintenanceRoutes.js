@@ -8,7 +8,9 @@ import {
   updateMultipleMaintenanceTasksController,
   getUniqueMachineNamesController,
   getUniqueAssignedPersonnelController,
-  getMaintenanceStatisticsController
+  getMaintenanceStatisticsController,
+  getUniqueMaintenanceDepartmentsController,
+  getUniqueMaintenanceDoerNameController
 } from "../controllers/maintenanceController.js";
 
 const router = express.Router();
@@ -37,5 +39,10 @@ router.get("/personnel/unique", getUniqueAssignedPersonnelController);
 
 // Get maintenance statistics
 router.get("/statistics", getMaintenanceStatisticsController);
+
+// Get unique maintenance departments
+router.get("/departments/unique", getUniqueMaintenanceDepartmentsController);
+
+router.get("/doers/unique", getUniqueMaintenanceDoerNameController);
 
 export default router;

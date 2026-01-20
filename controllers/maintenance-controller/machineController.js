@@ -4,16 +4,15 @@ import { uploadMaintenanceImageToS3 } from "../../middleware/s3Upload.js";
 export const createMachine = async (req, res) => {
   try {
     const body = req.body;
-    let userManualUrl = null;
-    let purchaseBillUrl = null;
-
-    // ✅ Upload files to S3
-    if (req.files?.user_manual?.[0]) {
-      userManualUrl = await uploadMaintenanceImageToS3(req.files.user_manual[0]);
-    }
-    if (req.files?.purchase_bill?.[0]) {
-      purchaseBillUrl = await uploadMaintenanceImageToS3(req.files.purchase_bill[0]);
-    }
+    // ✅ OPTIMIZED: Upload files to S3 in parallel
+    const [userManualUrl, purchaseBillUrl] = await Promise.all([
+      req.files?.user_manual?.[0]
+        ? uploadMaintenanceImageToS3(req.files.user_manual[0])
+        : Promise.resolve(null),
+      req.files?.purchase_bill?.[0]
+        ? uploadMaintenanceImageToS3(req.files.purchase_bill[0])
+        : Promise.resolve(null),
+    ]);
 
     // ✅ Parse JSON strings if needed
     let maintenanceSchedule = body.maintenance_schedule;

@@ -5,7 +5,9 @@ import {
   updateMaintenanceTask,
   getUniqueMachineNames,
   getUniqueAssignedPersonnel,
-  getMaintenanceStatistics
+  getMaintenanceStatistics,
+  getUniqueMaintenanceDepartments,
+  getUniqueMaintenanceDoerName,
 } from "../services/maintenanceServices.js";
 
 // import { uploadToS3 } from "../middleware/s3Upload.js";
@@ -126,14 +128,14 @@ export const updateMaintenanceTaskController = async (req, res) => {
     let updateData = { ...req.body };
 
     // Map frontend field names to database column names
-// In your controller, update the field mapping:
-const fieldMapping = {
-  status: "task_status",
-  sound_status: "sound_status",
-  temperature_status: "temperature_status",
-  remarks: "remarks",
-  actual_date: "actual_date"
-};
+    // In your controller, update the field mapping:
+    const fieldMapping = {
+      status: "task_status",
+      sound_status: "sound_status",
+      temperature_status: "temperature_status",
+      remarks: "remarks",
+      actual_date: "actual_date"
+    };
 
 
     const mappedData = {};
@@ -146,12 +148,12 @@ const fieldMapping = {
     });
 
     if (req.file) {
-  const fileUrl = await uploadMaintenanceImageToS3(req.file); // <-- NEW BUCKET
+      const fileUrl = await uploadMaintenanceImageToS3(req.file); // <-- NEW BUCKET
 
-  mappedData.image_link = fileUrl;
-  mappedData.file_name = req.file.originalname;
-  mappedData.file_type = req.file.mimetype.split("/")[1];
-}
+      mappedData.image_link = fileUrl;
+      mappedData.file_name = req.file.originalname;
+      mappedData.file_type = req.file.mimetype.split("/")[1];
+    }
 
 
     const updatedTask = await updateMaintenanceTask(taskId, mappedData);
@@ -181,26 +183,28 @@ export const updateMultipleMaintenanceTasksController = async (req, res) => {
     const results = [];
     const errors = [];
 
-   for (const t of tasks) {
-  try {
-    // 🔥 FIX: Convert "status" → "task_status"
-    if (t.status !== undefined) {
-      t.task_status = t.status;
-      delete t.status;
-    }
+    // ✅ OPTIMIZED: Run multiple updates in PARALLEL
+    await Promise.all(
+      tasks.map(async (t) => {
+        try {
+          // 🔥 FIX: Convert "status" → "task_status"
+          if (t.status !== undefined) {
+            t.task_status = t.status;
+            delete t.status;
+          }
 
-    // 🔥 Always remove frontend-sent actual_date (we don't need it)
-    if (t.actual_date !== undefined) {
-      delete t.actual_date;
-    }
+          // 🔥 Always remove frontend-sent actual_date (we don't need it)
+          if (t.actual_date !== undefined) {
+            delete t.actual_date;
+          }
 
-    const updated = await updateMaintenanceTask(t.taskId, t);
-    results.push(updated);
-
-  } catch (error) {
-    errors.push({ taskId: t.taskId, error: error.message });
-  }
-}
+          const updated = await updateMaintenanceTask(t.taskId, t);
+          results.push(updated);
+        } catch (error) {
+          errors.push({ taskId: t.taskId, error: error.message });
+        }
+      })
+    );
 
 
     res.status(200).json({
@@ -260,3 +264,30 @@ export const getMaintenanceStatisticsController = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
+
+/**
+ * Get unique maintenance departments
+ */
+export const getUniqueMaintenanceDepartmentsController = async (req, res) => {
+  try {
+    const data = await getUniqueMaintenanceDepartments();
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error("Error getting maintenance departments:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// get unique doername
+export const getUniqueMaintenanceDoerNameController = async (req, res) => {
+  try {
+    const data = await getUniqueMaintenanceDoerName();
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error("Error getting maintenance doer names:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+

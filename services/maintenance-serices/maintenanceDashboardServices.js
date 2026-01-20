@@ -24,6 +24,17 @@ const getTomorrow = () => {
   };
 };
 
+const getCurrentMonthRange = () => {
+  const now = new Date();
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+  const firstDayStr = firstDay.toISOString().split("T")[0];
+  const currentDayStr = now.toISOString().split("T")[0];
+  return {
+    start: dayStart(firstDayStr),
+    end: dayEnd(currentDayStr)
+  };
+};
+
 
 
 // ─────────────────────────────────────────────
@@ -85,9 +96,13 @@ export const fetchMaintenanceDashboardDataService = async ({
       conditions.push(`"Task_Start_Date"::date < CURRENT_DATE`);
       conditions.push(`"Actual_Date" IS NULL`);
     } else {
-      // default: all up to today
+      // default: all from start of current month up to today
+      const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
+      conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+      params.push(monthStart);
+      i++;
       conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
-      params.push(todayDate);
+      params.push(monthEnd);
       i++;
     }
 
@@ -126,11 +141,14 @@ export const countTotalMaintenanceTaskService = async ({
   username = null,
 }) => {
   try {
-    const { date: todayDate } = getToday();
+    const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
 
-    let conditions = [`"Task_Start_Date"::date <= $1::date`];
-    let params = [todayDate];
-    let i = 2;
+    let conditions = [
+      `"Task_Start_Date" >= $1`,
+      `"Task_Start_Date" <= $2`
+    ];
+    let params = [monthStart, monthEnd];
+    let i = 3;
 
     if (role === "user" && username) {
       conditions.push(`LOWER("Doer_Name") = LOWER($${i})`);
@@ -169,14 +187,15 @@ export const countCompleteMaintenanceTaskService = async ({
   username = null,
 }) => {
   try {
-    const { date: todayDate } = getToday();
+    const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
 
     let conditions = [
-      `"Task_Start_Date"::date <= $1::date`,
+      `"Task_Start_Date" >= $1`,
+      `"Task_Start_Date" <= $2`,
       `"Actual_Date" IS NOT NULL`
     ];
-    let params = [todayDate];
-    let i = 2;
+    let params = [monthStart, monthEnd];
+    let i = 3;
 
     if (role === "user" && username) {
       conditions.push(`LOWER("Doer_Name") = LOWER($${i})`);
@@ -302,12 +321,18 @@ export const countNotDoneMaintenanceTaskService = async ({
   username = null,
 }) => {
   try {
-    // Count where Status is 'No' (or equivalent for Not Done)
-    // Assuming 'Status' column exists as per request "jiska status NO hai"
+    const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
 
-    let conditions = [`LOWER("Status") = 'no'`];
-    let params = [];
-    let i = 1;
+    // Count where Status is 'No' (or equivalent for Not Done)
+    // AND within current month range
+
+    let conditions = [
+      `LOWER("Status") = 'no'`,
+      `"Task_Start_Date" >= $1`,
+      `"Task_Start_Date" <= $2`
+    ];
+    let params = [monthStart, monthEnd];
+    let i = 3;
 
     if (role === "user" && username) {
       conditions.push(`LOWER("Doer_Name") = LOWER($${i})`);
@@ -385,14 +410,28 @@ export const countOverDueMaintenanceTaskService = async ({
 // ─────────────────────────────────────────────
 // SUMMARY
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// SUMMARY
+// ─────────────────────────────────────────────
 export const getMaintenanceDashboardSummaryService = async (params) => {
-  const totalTasks = await countTotalMaintenanceTaskService(params);
-  const completedTasks = await countCompleteMaintenanceTaskService(params);
-  const pendingTasks = await countPendingMaintenanceTaskService(params);
-  const notDoneTasks = await countNotDoneMaintenanceTaskService(params);
-  const upcomingTasks = await countUpcomingMaintenanceTaskService(params);
+  // ✅ OPTIMIZED: Run all count queries in parallel (Added missing overdueTasks)
+  const [
+    totalTasks,
+    completedTasks,
+    pendingTasks,
+    notDoneTasks,
+    upcomingTasks,
+    overdueTasks // Added this
+  ] = await Promise.all([
+    countTotalMaintenanceTaskService(params),
+    countCompleteMaintenanceTaskService(params),
+    countPendingMaintenanceTaskService(params),
+    countNotDoneMaintenanceTaskService(params),
+    countUpcomingMaintenanceTaskService(params),
+    countOverDueMaintenanceTaskService(params) // Added this call
+  ]);
 
-  console.log(upcomingTasks)
+  console.log(upcomingTasks);
   const completionRate =
     totalTasks > 0 ? Number(((completedTasks / totalTasks) * 100).toFixed(1)) : 0;
 
@@ -461,8 +500,12 @@ export const countMaintenanceTaskByViewService = async ({
       conditions.push(`"Task_Start_Date"::date < CURRENT_DATE`);
       conditions.push(`"Actual_Date" IS NULL`);
     } else {
+      const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
+      conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+      params.push(monthStart);
+      i++;
       conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
-      params.push(todayDate);
+      params.push(monthEnd);
       i++;
     }
 

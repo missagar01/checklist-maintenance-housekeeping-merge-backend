@@ -7,6 +7,7 @@ export const fetchDropdownData = async (req, res) => {
     const normalizedDepartment = department?.trim();
 
     // 1️⃣ Fetch ALL dropdown data for global lists
+    // 1️⃣ Fetch ALL dropdown data for global lists
     const allQuery = `
       SELECT DISTINCT
         department,
@@ -17,7 +18,27 @@ export const fetchDropdownData = async (req, res) => {
         department1
       FROM master
     `;
-    const allResult = await maintenancePool.query(allQuery);
+
+    // 2️⃣ Prepare doer query (if department exists)
+    let doerPromise = Promise.resolve({ rows: [] });
+    if (normalizedDepartment) {
+      const doerQuery = `
+        SELECT DISTINCT user_name AS doer_name
+        FROM users
+        WHERE (department IS NOT NULL AND department <> '')
+          AND LOWER(department) = LOWER($1)
+          AND user_name IS NOT NULL AND user_name <> ''
+        ORDER BY user_name ASC
+      `;
+      doerPromise = pool.query(doerQuery, [normalizedDepartment]);
+    }
+
+    // ✅ OPTIMIZED: Run both queries in parallel
+    const [allResult, doerResult] = await Promise.all([
+      maintenancePool.query(allQuery),
+      doerPromise
+    ]);
+
     const allRows = allResult.rows;
 
     // Global dropdowns (always visible)
@@ -26,7 +47,7 @@ export const fetchDropdownData = async (req, res) => {
     const taskStatus = [...new Set(allRows.map(r => r.task_status).filter(Boolean))];
     const priority = [...new Set(allRows.map(r => r.priority).filter(Boolean))];
 
-    // 2️⃣ If no department selected → return ALL except Doer Name
+    // 3️⃣ If no department selected → return ALL except Doer Name
     if (!normalizedDepartment) {
       return res.status(200).json({
         success: true,
@@ -40,16 +61,6 @@ export const fetchDropdownData = async (req, res) => {
       });
     }
 
-    // 3️⃣ Filter ONLY doer_name by department from users table
-    const doerQuery = `
-      SELECT DISTINCT user_name AS doer_name
-      FROM users
-      WHERE (department IS NOT NULL AND department <> '')
-        AND LOWER(department) = LOWER($1)
-        AND user_name IS NOT NULL AND user_name <> ''
-      ORDER BY user_name ASC
-    `;
-    const doerResult = await pool.query(doerQuery, [normalizedDepartment]);
     const doerName = doerResult.rows.map(r => r.doer_name).filter(Boolean);
 
     res.status(200).json({

@@ -16,7 +16,8 @@ import {
   getDashboardDataCount,
   getChecklistDateRangeCount,
   getStaffTaskSummary,
-  getNotDoneTask
+  getNotDoneTask,
+  getNotDoneTaskList
 } from "../controllers/dashboardController.js";
 
 const router = express.Router();
@@ -33,6 +34,7 @@ router.get("/completedtoday", getCompletedToday);
 router.get("/overdue", getOverdueTask);
 router.get("/upcoming", getUpcomingTask);
 router.get("/notdone", getNotDoneTask);
+router.get("/notdone/list", getNotDoneTaskList);
 
 
 // // FILTER LISTS

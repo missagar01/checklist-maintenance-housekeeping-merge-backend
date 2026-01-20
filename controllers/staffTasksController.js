@@ -1,5 +1,44 @@
 import { pool } from "../config/db.js";
 
+const TABLE_NAME_MAP = {
+  checklist: "public.checklist",
+  delegation: "public.delegation",
+};
+
+const getTableName = (dashboardType = "checklist") => {
+  const normalizedType =
+    typeof dashboardType === "string"
+      ? dashboardType.toLowerCase()
+      : "checklist";
+
+  return TABLE_NAME_MAP[normalizedType] || TABLE_NAME_MAP.checklist;
+};
+
+const getMonthDateRange = (monthYear = "") => {
+  if (!monthYear) return null;
+
+  const [yearStr, monthStr] = monthYear.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
+    return null;
+  }
+
+  const paddedMonth = String(month).padStart(2, "0");
+  const lastDay = new Date(year, month, 0).getDate();
+
+  return {
+    start: `${year}-${paddedMonth}-01`,
+    end: `${year}-${paddedMonth}-${String(lastDay).padStart(2, "0")}`,
+  };
+};
+
 export const getStaffTasks = async (req, res) => {
   try {
     const {
@@ -7,130 +46,113 @@ export const getStaffTasks = async (req, res) => {
       staffFilter = "all",
       page = 1,
       limit = 50,
-      monthYear = "" // Add this parameter
+      monthYear = ""
     } = req.query;
 
-    const table = dashboardType;
-    const offset = (page - 1) * limit;
+    const tableName = getTableName(dashboardType);
+    const pageNumber = Math.max(Number(page) || 1, 1);
+    const limitNumber = Math.max(Number(limit) || 50, 1);
+    const offset = (pageNumber - 1) * limitNumber;
 
-    let completedCondition = "";
+    const conditions = [];
+    const params = [];
 
-    if (table === "checklist") {
-      completedCondition = "status = 'yes'";
+    const appendParam = (clause, value) => {
+      params.push(value);
+      conditions.push(`${clause}$${params.length}`);
+    };
+
+    const monthRange = getMonthDateRange(monthYear);
+
+    if (monthRange) {
+      appendParam("task_start_date::date >= ", monthRange.start);
+      appendParam("task_start_date::date <= ", monthRange.end);
     } else {
-      completedCondition = "LOWER(status) = 'yes'";
+      conditions.push("task_start_date <= NOW()");
     }
 
-    // STEP 1 — Fetch unique names with month-year filter
-    let staffQuery = `
-      SELECT DISTINCT name 
-      FROM ${table}
-      WHERE name IS NOT NULL
-      AND name != ''
-      AND task_start_date IS NOT NULL
-      AND task_start_date <= NOW()
+    conditions.push("task_start_date IS NOT NULL");
+    conditions.push("name IS NOT NULL");
+    conditions.push("TRIM(name) <> ''");
+    conditions.push("name <> 'Sheelesh Marele'");
+
+    if (staffFilter && staffFilter !== "all") {
+      params.push(staffFilter);
+      conditions.push(`LOWER(name) = LOWER($${params.length})`);
+    }
+
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const limitPlaceholder = params.length + 1;
+    const offsetPlaceholder = params.length + 2;
+    params.push(limitNumber, offset);
+
+    const query = `
+      WITH base_tasks AS (
+        SELECT
+          c.*,
+          c.task_start_date::date AS task_date,
+          c.submission_date::date AS submission_date_only
+        FROM ${tableName} c
+        ${whereClause}
+      ),
+      summary AS (
+        SELECT
+          department,
+          name AS doer,
+          COUNT(*) AS total_tasks,
+          COUNT(*) FILTER (
+            WHERE lower(status::text) = 'yes'
+          ) AS total_completed_tasks,
+          COUNT(*) FILTER (
+            WHERE lower(status::text) = 'yes'
+              AND submission_date_only IS NOT NULL
+              AND task_date IS NOT NULL
+              AND submission_date_only <= task_date
+          ) AS total_done_on_time
+        FROM base_tasks
+        GROUP BY department, name
+      )
+      SELECT
+        department,
+        doer,
+        total_tasks,
+        total_completed_tasks,
+        total_done_on_time,
+        ROUND(
+          (total_done_on_time::numeric / NULLIF(total_tasks,0)) * 100 - 100,
+          2
+        ) AS total_score
+      FROM summary
+      ORDER BY department, doer
+      LIMIT $${limitPlaceholder}
+      OFFSET $${offsetPlaceholder};
     `;
 
-    // Add month-year filter if provided
-    if (monthYear) {
-      const [year, month] = monthYear.split('-').map(Number);
-      const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
-      const endDate = new Date(year, month, 0).toISOString().split('T')[0]; // Last day of month
-      
-      staffQuery += ` AND task_start_date >= '${startDate}' AND task_start_date <= '${endDate} 23:59:59'`;
-    }
+    const result = await pool.query(query, params);
 
-    if (staffFilter !== "all") {
-      staffQuery += ` AND LOWER(name) = LOWER('${staffFilter}')`;
-    }
-
-    staffQuery += ` ORDER BY name ASC`;
-
-    const staffResult = await pool.query(staffQuery);
-    const allStaff = staffResult.rows.map(r => r.name);
-
-    const paginatedStaff = allStaff.slice(offset, offset + limit);
-
-    if (paginatedStaff.length === 0) {
-      return res.json([]);
-    }
-
-    const finalData = [];
-
-    for (let staffName of paginatedStaff) {
-      // Get task data with timing calculation
-      let taskQuery = `
-        SELECT 
-          COUNT(*) AS total,
-          SUM(
-             CASE 
-               WHEN submission_date IS NOT NULL 
-                 OR (${completedCondition})
-               THEN 1 
-               ELSE 0 
-             END
-          ) AS completed,
-          SUM(
-            CASE 
-              WHEN submission_date IS NOT NULL AND submission_date <= task_start_date
-              THEN 1 
-              WHEN submission_date IS NULL AND ${completedCondition} AND task_start_date <= NOW()
-              THEN 1
-              ELSE 0 
-            END
-          ) AS done_on_time,
-          AVG(
-            CASE 
-              WHEN submission_date IS NOT NULL AND submission_date > task_start_date
-              THEN EXTRACT(EPOCH FROM (submission_date - task_start_date)) / 86400.0 -- Delay in days
-              ELSE 0
-            END
-          ) AS avg_delay_days
-        FROM ${table}
-        WHERE LOWER(name)=LOWER('${staffName}')
-        AND task_start_date IS NOT NULL
-      `;
-
-      // Add month-year filter to task query if provided
-      if (monthYear) {
-        const [year, month] = monthYear.split('-').map(Number);
-        const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
-        const endDate = new Date(year, month, 0).toISOString().split('T')[0];
-        
-        taskQuery += ` AND task_start_date >= '${startDate}' AND task_start_date <= '${endDate} 23:59:59'`;
-      } else {
-        taskQuery += ` AND task_start_date <= NOW()`;
-      }
-
-      const taskResult = await pool.query(taskQuery);
-      const total = Number(taskResult.rows[0].total);
-      const completed = Number(taskResult.rows[0].completed);
-      const doneOnTime = Number(taskResult.rows[0].done_on_time) || 0;
-      const avgDelayDays = Number(taskResult.rows[0].avg_delay_days) || 0;
+    const finalData = result.rows.map((row) => {
+      const total = Number(row.total_tasks);
+      const completed = Number(row.total_completed_tasks);
+      const doneOnTime = Number(row.total_done_on_time);
+      const score = Number(row.total_score || 0);
       const pending = total - completed;
-      
-      // Calculate on-time score as negative percentage
-      let onTimeScore = 0;
-      if (avgDelayDays > 0) {
-        onTimeScore = -Math.min(100, Math.round(avgDelayDays * 100));
-      } else if (completed > 0 && doneOnTime === completed) {
-        onTimeScore = 100;
-      }
 
-      finalData.push({
-        id: staffName.toLowerCase().replace(/\s+/g, "-"),
-        name: staffName,
-        email: `${staffName.toLowerCase().replace(/\s+/g, ".")}@example.com`,
+      return {
+        id: row.doer.toLowerCase().replace(/\s+/g, "-"),
+        name: row.doer,
+        email: `${row.doer.toLowerCase().replace(/\s+/g, ".")}@example.com`,
         totalTasks: total,
         completedTasks: completed,
         pendingTasks: pending,
         doneOnTime: doneOnTime,
-        onTimeScore: onTimeScore
-      });
-    }
+        onTimeScore: score,
+      };
+    });
 
     return res.json(finalData);
-
   } catch (err) {
     console.error("🔥 REAL ERROR →", err);
     res.status(500).json({ error: err.message });
@@ -138,36 +160,40 @@ export const getStaffTasks = async (req, res) => {
 };
 
 
-
 export const getStaffCount = async (req, res) => {
   try {
     const { dashboardType = "checklist", staffFilter = "all" } = req.query;
-    const table = dashboardType;
+    const tableName = getTableName(dashboardType);
 
-    let query = `
-      SELECT DISTINCT name 
-      FROM ${table}
-      WHERE name IS NOT NULL 
-      AND name != ''
-      AND task_start_date::timestamp <= NOW()
-    `;
+    const conditions = [
+      "name IS NOT NULL",
+      "TRIM(name) <> ''",
+      "name <> 'Sheelesh Marele'",
+      "task_start_date IS NOT NULL",
+      "task_start_date <= NOW()",
+    ];
+    const params = [];
 
-    if (staffFilter !== "all") {
-      query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+    if (staffFilter && staffFilter !== "all") {
+      params.push(staffFilter);
+      conditions.push(`LOWER(name) = LOWER($${params.length})`);
     }
 
-    const result = await pool.query(query);
+    const query = `
+      SELECT DISTINCT name 
+      FROM ${tableName}
+      WHERE ${conditions.join(" AND ")}
+    `;
+
+    const result = await pool.query(query, params);
     const count = result.rows.length;
 
     return res.json(count);
-
   } catch (err) {
     console.error("Error in getStaffCount:", err);
     return res.status(500).json({ error: "Error fetching staff count" });
   }
 };
-
-
 
 
 export const getUsersCount = async (req, res) => {

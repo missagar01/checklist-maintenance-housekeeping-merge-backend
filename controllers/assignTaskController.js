@@ -113,8 +113,8 @@ export const postAssignTasks = async (req, res) => {
 
       tasks.forEach((t, i) => {
         values.push(
-          `($${i*11+1}, $${i*11+2}, $${i*11+3}, $${i*11+4}, $${i*11+5},
-            $${i*11+6}, $${i*11+7}, $${i*11+8}, $${i*11+9}, $${i*11+10}, $${i*11+11})`
+          `($${i * 11 + 1}, $${i * 11 + 2}, $${i * 11 + 3}, $${i * 11 + 4}, $${i * 11 + 5},
+            $${i * 11 + 6}, $${i * 11 + 7}, $${i * 11 + 8}, $${i * 11 + 9}, $${i * 11 + 10}, $${i * 11 + 11})`
         );
         params.push(
           t.department,
@@ -144,33 +144,33 @@ export const postAssignTasks = async (req, res) => {
       const values = [];
       const params = [];
 
-     tasks.forEach((t, i) => {
+      tasks.forEach((t, i) => {
 
-  const startDate = t.taskStartDate || t.startDate || t.dueDate;  
+        const startDate = t.taskStartDate || t.startDate || t.dueDate;
 
-  values.push(
-    `($${i*14+1}, $${i*14+2}, $${i*14+3}, $${i*14+4}, $${i*14+5},
-      $${i*14+6}, $${i*14+7}, $${i*14+8}, $${i*14+9},
-      $${i*14+10}, $${i*14+11}, $${i*14+12}, $${i*14+13}, $${i*14+14})`
-  );
+        values.push(
+          `($${i * 14 + 1}, $${i * 14 + 2}, $${i * 14 + 3}, $${i * 14 + 4}, $${i * 14 + 5},
+      $${i * 14 + 6}, $${i * 14 + 7}, $${i * 14 + 8}, $${i * 14 + 9},
+      $${i * 14 + 10}, $${i * 14 + 11}, $${i * 14 + 12}, $${i * 14 + 13}, $${i * 14 + 14})`
+        );
 
-  params.push(
-    t.department,                 // 1
-    t.givenBy,                    // 2
-    t.doer,                       // 3
-    t.description,                // 4
-    t.enableReminders ? "yes" : "no",  // 5
-    t.requireAttachment ? "yes" : "no", // 6
-    t.frequency,                    // 7
-    null,                          // 8 remark
-    null,                          // 9 status
-    imageUrl,                      // 10 image
-    null,                          // 11 admin_done
-    startDate,                     // 12 planned_date
-    startDate,                     // 13 task_start_date 🔥 FIXED
-    null                           // 14 submission_date
-  );
-});
+        params.push(
+          t.department,                 // 1
+          t.givenBy,                    // 2
+          t.doer,                       // 3
+          t.description,                // 4
+          t.enableReminders ? "yes" : "no",  // 5
+          t.requireAttachment ? "yes" : "no", // 6
+          t.frequency,                    // 7
+          null,                          // 8 remark
+          null,                          // 9 status
+          imageUrl,                      // 10 image
+          null,                          // 11 admin_done
+          startDate,                     // 12 planned_date
+          startDate,                     // 13 task_start_date 🔥 FIXED
+          null                           // 14 submission_date
+        );
+      });
 
 
       await pool.query(
@@ -183,8 +183,8 @@ export const postAssignTasks = async (req, res) => {
       );
     }
 
-    res.json({ 
-      message: "Tasks inserted", 
+    res.json({
+      message: "Tasks inserted",
       count: tasks.length,
       image: imageUrl
     });

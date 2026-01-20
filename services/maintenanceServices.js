@@ -116,54 +116,21 @@ export const getMaintenanceTasks = async (page = 1, limit = 50, filters = {}) =>
   return result.rows;
 };
 
-/***************************************************************************
- * 🟧 2. GET PENDING TASKS (Actual_Date IS NULL)
- ***************************************************************************/
-// export const getPendingMaintenanceTasks = async (page = 1, limit = 50, userId = null) => {
-//   const offset = (page - 1) * limit;
-
-//   let query = `
-//     SELECT ${MAINTENANCE_SELECT}
-//     FROM maintenance_task_assign
-//     WHERE "Actual_Date" IS NULL
-//   `;
-
-//   const params = [];
-
-//   if (userId) {
-//   query += ` AND "Doer_Name" = $${params.length + 1}`;
-//   params.push(userId);
-// }
 
 
-//   query += `
-//     ORDER BY 
-//       CASE 
-//         WHEN "Priority" = 'High' THEN 1
-//         WHEN "Priority" = 'Medium' THEN 2
-//         WHEN "Priority" = 'Low' THEN 3
-//         ELSE 4
-//       END,
-//       "Task_Start_Date" ASC
-//     LIMIT $${params.length + 1}
-//     OFFSET $${params.length + 2}
-//   `;
-
-//   params.push(limit, offset);
-
-//   const result = await maintenancePool.query(query, params);
-//   return result.rows;
-// };
-
-
-export const getPendingMaintenanceTasks = async (page = 1, limit = 50, userId = null) => {
+export const getPendingMaintenanceTasks = async (
+  page = 1,
+  limit = 50,
+  userId = null
+) => {
   const offset = (page - 1) * limit;
 
   let query = `
     SELECT ${MAINTENANCE_SELECT}
     FROM maintenance_task_assign
     WHERE "Actual_Date" IS NULL
-      AND "Task_Start_Date" <= CURRENT_DATE     -- 🔥 Only show overdue + today
+      AND "Task_Start_Date" <= CURRENT_DATE
+      AND "Task_Status" IS NULL
   `;
 
   const params = [];
@@ -193,72 +160,8 @@ export const getPendingMaintenanceTasks = async (page = 1, limit = 50, userId = 
   return result.rows;
 };
 
-/***************************************************************************
- * 🟦 3. HISTORY (Completed tasks = Actual_Date IS NOT NULL)
- ***************************************************************************/
-// export const getCompletedMaintenanceTasks = async (page = 1, limit = 50, filters = {}) => {
-//   const offset = (page - 1) * limit;
 
-//   const { search = "", machineName = "", serialNo = "", assignedTo = "", startDate = "", endDate = "" } = filters;
 
-//   let query = `
-//     SELECT ${MAINTENANCE_SELECT}
-//     FROM maintenance_task_assign
-//     WHERE "Actual_Date" IS NOT NULL
-//   `;
-
-//   const params = [];
-
-//   if (search) {
-//     query += ` AND (
-//       "Description" ILIKE $${params.length + 1} OR
-//       "Machine_Name" ILIKE $${params.length + 1} OR
-//       "Remarks" ILIKE $${params.length + 1}
-//     )`;
-//     params.push(`%${search}%`);
-//   }
-
-//   if (machineName) {
-//     query += ` AND "Machine_Name" = $${params.length + 1}`;
-//     params.push(machineName);
-//   }
-
-//   if (serialNo) {
-//     query += ` AND "Serial_No" = $${params.length + 1}`;
-//     params.push(serialNo);
-//   }
-
-//   if (assignedTo) {
-//     query += ` AND "Doer_Name" = $${params.length + 1}`;
-//     params.push(assignedTo);
-//   }
-
-//   if (startDate) {
-//     query += ` AND "Actual_Date" >= $${params.length + 1}`;
-//     params.push(startDate);
-//   }
-
-//   if (endDate) {
-//     query += ` AND "Actual_Date" <= $${params.length + 1}`;
-//     params.push(endDate);
-//   }
-
-//   if (assignedTo) {
-//     query += ` AND "Doer_Name" = $${params.length + 1}`;
-//     params.push(assignedTo);
-// }
-
-//   query += `
-//     ORDER BY "Actual_Date" DESC
-//     LIMIT $${params.length + 1}
-//     OFFSET $${params.length + 2}
-//   `;
-
-//   params.push(limit, offset);
-
-//   const result = await maintenancePool.query(query, params);
-//   return result.rows;
-// };
 
 
 export const getCompletedMaintenanceTasks = async (
@@ -335,16 +238,16 @@ export const getCompletedMaintenanceTasks = async (
  * 🟨 4. UPDATE TASK
  ***************************************************************************/
 export const updateMaintenanceTask = async (taskId, data) => {
-const fieldMap = {
-  task_status: `"Task_Status"`,
-  remarks: `"Remarks"`,
-  sound_status: `"Sound_Status"`,              // FIXED
-  temperature_status: `"Temperature_Status"`, // FIXED
-  image_link: `"Image_Link"`,
-  file_name: `"File_Name"`,
-  file_type: `"File_Type"`,
-  actual_date: `"Actual_Date"`
-};
+  const fieldMap = {
+    task_status: `"Task_Status"`,
+    remarks: `"Remarks"`,
+    sound_status: `"Sound_Status"`,              // FIXED
+    temperature_status: `"Temperature_Status"`, // FIXED
+    image_link: `"Image_Link"`,
+    file_name: `"File_Name"`,
+    file_type: `"File_Type"`,
+    actual_date: `"Actual_Date"`
+  };
 
 
   const updates = [];
@@ -365,7 +268,7 @@ const fieldMap = {
   // }
 
   // Always update Actual_Date to today's date
-updates.push(`"Actual_Date" = NOW()`);
+  updates.push(`"Actual_Date" = NOW()`);
 
 
   params.push(taskId);
@@ -426,6 +329,44 @@ export const getMaintenanceStatistics = async () => {
     FROM maintenance_task_assign
   `;
 
-  const result = await maintenancePool.query(query);
   return result.rows[0];
 };
+
+/***************************************************************************
+ * 🟩 8. DEPARTMENT LIST
+ ***************************************************************************/
+export const getUniqueMaintenanceDepartments = async () => {
+  const query = `
+    SELECT DISTINCT "doer_department"
+    FROM maintenance_task_assign
+    WHERE "doer_department" IS NOT NULL AND "doer_department" <> ''
+    ORDER BY "doer_department"
+  `;
+
+  const result = await maintenancePool.query(query);
+  return result.rows.map((r) => r.doer_department);
+};
+
+// Doer Name
+export const getUniqueMaintenanceDoerName = async () => {
+  const query = `
+    SELECT DISTINCT "Doer_Name" AS name
+    FROM maintenance_task_assign
+    WHERE "Doer_Name" IS NOT NULL AND "Doer_Name" <> ''
+    ORDER BY "Doer_Name"
+  `;
+
+  const result = await maintenancePool.query(query);
+  return result.rows.map((r) => r.name);
+};
+
+
+
+
+
+
+
+
+
+
+

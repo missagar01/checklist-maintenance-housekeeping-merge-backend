@@ -1,0 +1,18 @@
+Error counting maintenance: column "Status" does not exist
+Query: SELECT COUNT(*) AS count FROM maintenance_task_assign WHERE COALESCE("doer_department", "machine_department") = $1 AND LOWER("Status") = 'no'
+Params: ["PIPE MILL PRODUCTION"]
+Error counting maintenance: column "Status" does not exist
+Query: SELECT COUNT(*) AS count FROM maintenance_task_assign WHERE "Doer_Name" = $1 AND COALESCE("doer_department", "machine_department") = $2 AND LOWER("Status") = 'no'
+Params: ["Sarvajeet Kumar","PIPE MILL PRODUCTION"]
+Error counting maintenance: column "Status" does not exist
+Query: SELECT COUNT(*) AS count FROM maintenance_task_assign WHERE LOWER("Status") = 'no'
+Params: []
+Error counting maintenance: column "Status" does not exist
+Query: SELECT COUNT(*) AS count FROM maintenance_task_assign WHERE LOWER("Status") = 'no'
+Params: []
+Error counting maintenance: column "Status" does not exist
+Query: SELECT COUNT(*) AS count FROM maintenance_task_assign WHERE LOWER("Status") = 'no'
+Params: []
+Error counting maintenance: column "Status" does not exist
+Query: SELECT COUNT(*) AS count FROM maintenance_task_assign WHERE LOWER("Status") = 'no'
+Params: []

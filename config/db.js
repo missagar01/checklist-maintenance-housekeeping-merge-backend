@@ -24,9 +24,20 @@ const maintenancePool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+// ✅ ADDED: Global error listeners to prevent crash on idle client error
+pool.on('error', (err) => {
+  console.error('❌ Unexpected error on idle client (Main Pool):', err.message);
+  // process.exit(-1); // Do not exit, just log it. Pool will try to reconnect on next query.
+});
+
+maintenancePool.on('error', (err) => {
+  console.error('❌ Unexpected error on idle client (Maintenance Pool):', err.message);
+});
+
 const connectToPool = async (poolInstance, poolName) => {
   try {
-    await poolInstance.connect();
+    const client = await poolInstance.connect();
+    client.release(); // ✅ FIXED: Release the client back to the pool!
     console.log(`✅ Connected to ${poolName} PostgreSQL`);
   } catch (err) {
     console.error(`❌ ${poolName} Database connection error:`, err.message);

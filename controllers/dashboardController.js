@@ -1,5 +1,7 @@
 import { pool, maintenancePool } from "../config/db.js";
 import { query as housekeepingQuery } from "../config/housekeppingdb.js";
+import { refreshDeviceSync } from "../services/deviceSync.js";
+import { getUniqueDepartmentsService } from "../services/dashboardServices.js";
 
 const today = new Date().toISOString().split("T")[0];
 const logQueries = process.env.LOG_QUERIES === "true";
@@ -27,7 +29,8 @@ const CHECKLIST_SOURCES = [
     submissionColumn: `"submission_date"`,
     nameColumn: `"name"`,
     departmentColumn: `"department"`,
-    statusColumn: `"status"`
+    statusColumn: `"status"`,
+    statusColumnSafe: true
   },
   {
     name: "housekeeping",
@@ -40,7 +43,7 @@ const CHECKLIST_SOURCES = [
     nameColumn: `"name"`,
     departmentColumn: `"department"`,
     statusColumn: `"status"`,
-    statusColumnSafe: false
+    statusColumnSafe: true
   },
   {
     name: "maintenance",
@@ -119,15 +122,15 @@ const buildChecklistFilterConditions = (
   let idx = startIndex;
 
   if (role === "user" && username) {
-    conditions.push(`LOWER(${source.nameColumn}) = LOWER($${idx++})`);
+    conditions.push(`${source.nameColumn} = $${idx++}`);
     params.push(username);
   } else if (role === "admin" && staffFilter && staffFilter !== "all") {
-    conditions.push(`LOWER(${source.nameColumn}) = LOWER($${idx++})`);
+    conditions.push(`${source.nameColumn} = $${idx++}`);
     params.push(staffFilter);
   }
 
   if (departmentFilter && departmentFilter !== "all") {
-    conditions.push(`LOWER(${source.departmentColumn}) = LOWER($${idx++})`);
+    conditions.push(`${source.departmentColumn} = $${idx++}`);
     params.push(departmentFilter);
   }
 
@@ -178,9 +181,7 @@ const fetchUnifiedChecklistRows = async ({
   const offset = (normalizedPage - 1) * normalizedLimit;
   const perSourceLimit = offset + normalizedLimit;
 
-  const combined = [];
-
-  for (const source of CHECKLIST_SOURCES) {
+  const sourcePromises = CHECKLIST_SOURCES.map(async (source) => {
     const { conditions, params } = buildChecklistFilterConditions(source, {
       role,
       staffFilter,
@@ -208,9 +209,11 @@ const fetchUnifiedChecklistRows = async ({
       0
     ]);
 
-    const rows = result.rows.map((row) => ({ ...row, source: source.name }));
-    combined.push(...rows);
-  }
+    return result.rows.map((row) => ({ ...row, source: source.name }));
+  });
+
+  const results = await Promise.all(sourcePromises);
+  const combined = results.flat();
 
   const sorted = combined.sort((a, b) => {
     const aDate = new Date(a.task_start_date || 0);
@@ -231,51 +234,75 @@ const countUnifiedChecklistRows = async ({
   username
 }) => {
   const { firstDayStr, currentDayStr } = getCurrentMonthRange();
-  let total = 0;
 
-  for (const source of CHECKLIST_SOURCES) {
-    const { conditions, params } = buildChecklistFilterConditions(source, {
-      role,
-      staffFilter,
-      departmentFilter,
-      username,
-      taskView,
-      firstDayStr,
-      currentDayStr
-    });
+  const results = await Promise.all(
+    CHECKLIST_SOURCES.map(async (source) => {
+      const { conditions, params } = buildChecklistFilterConditions(source, {
+        role,
+        staffFilter,
+        departmentFilter,
+        username,
+        taskView,
+        firstDayStr,
+        currentDayStr
+      });
 
-    const query = `SELECT COUNT(*) AS count FROM ${source.table} ${buildWhereClause(conditions)}`;
-    log("COUNT QUERY SOURCE =>", source.name, query, params);
-    const result = await executeSourceQuery(source, query, params);
-    total += Number(result.rows[0]?.count || 0);
-  }
+      const query = `SELECT COUNT(*) AS count FROM ${source.table} ${buildWhereClause(conditions)}`;
+      // log("COUNT QUERY SOURCE =>", source.name, query, params); // Keep log
+      try {
+        const result = await executeSourceQuery(source, query, params);
+        return { name: source.name, count: Number(result.rows[0]?.count || 0) };
+      } catch (err) {
+        console.error(`Error counting ${source.name}:`, err.message);
+        return { name: source.name, count: 0 };
+      }
+    })
+  );
 
-  return total;
+  const total = results.reduce((a, b) => a + b.count, 0);
+  const breakdown = results.reduce((acc, item) => {
+    acc[item.name] = item.count;
+    return acc;
+  }, {});
+
+  return { count: total, breakdown };
 };
 
 const countChecklistSources = async (options, conditionAugmenter) => {
   const { firstDayStr, currentDayStr } = getCurrentMonthRange();
-  let total = 0;
 
-  for (const source of CHECKLIST_SOURCES) {
-    let { conditions, params } = buildChecklistFilterConditions(source, {
-      ...options,
-      firstDayStr,
-      currentDayStr
-    });
+  const results = await Promise.all(
+    CHECKLIST_SOURCES.map(async (source) => {
+      let { conditions, params } = buildChecklistFilterConditions(source, {
+        ...options,
+        firstDayStr,
+        currentDayStr
+      });
 
-    if (conditionAugmenter) {
-      const augmented = conditionAugmenter({ source, conditions, params });
-      conditions = augmented.conditions;
-      params = augmented.params;
-    }
+      if (conditionAugmenter) {
+        const augmented = conditionAugmenter({ source, conditions, params });
+        conditions = augmented.conditions;
+        params = augmented.params;
+      }
 
-    const query = `SELECT COUNT(*) AS count FROM ${source.table} ${buildWhereClause(conditions)}`;
-    const result = await executeSourceQuery(source, query, params);
-    total += Number(result.rows[0]?.count || 0);
-  }
+      const query = `SELECT COUNT(*) AS count FROM ${source.table} ${buildWhereClause(conditions)}`;
+      try {
+        const result = await executeSourceQuery(source, query, params);
+        return { name: source.name, count: Number(result.rows[0]?.count || 0) };
+      } catch (err) {
+        console.error(`Error counting ${source.name}:`, err.message);
+        return { name: source.name, count: 0 };
+      }
+    })
+  );
 
-  return total;
+  const total = results.reduce((a, b) => a + b.count, 0);
+  const breakdown = results.reduce((acc, item) => {
+    acc[item.name] = item.count;
+    return acc;
+  }, {});
+
+  return { count: total, breakdown };
 };
 
 export const getDashboardData = async (req, res) => {
@@ -317,21 +344,21 @@ export const getDashboardData = async (req, res) => {
     // ROLE FILTER (USER)
     // ---------------------------
     if (role === "user" && username) {
-      query += ` AND LOWER(name) = LOWER('${username}')`;
+      query += ` AND name = '${username}'`;
     }
 
     // ---------------------------
     // ADMIN STAFF FILTER
     // ---------------------------
     if (role === "admin" && staffFilter !== "all") {
-      query += ` AND LOWER(name) = LOWER('${staffFilter}')`;
+      query += ` AND name = '${staffFilter}'`;
     }
 
     // ---------------------------
     // DEPARTMENT FILTER
     // ---------------------------
     if (dashboardType === "checklist" && departmentFilter !== "all") {
-      query += ` AND LOWER(department) = LOWER('${departmentFilter}')`;
+      query += ` AND department = '${departmentFilter}'`;
     }
 
     // ---------------------------
@@ -406,14 +433,14 @@ export const getTotalTask = async (req, res) => {
     const { firstDayStr, currentDayStr } = getCurrentMonthRange();
 
     if (dashboardType === "checklist") {
-      const total = await countUnifiedChecklistRows({
+      const result = await countUnifiedChecklistRows({
         staffFilter,
         departmentFilter,
         role,
         username,
         taskView: "all"
       });
-      return res.json(total);
+      return res.json(result);
     }
 
     let query = `
@@ -425,21 +452,21 @@ export const getTotalTask = async (req, res) => {
 
     // ROLE FILTER
     if (role === "user" && username) {
-      query += ` AND LOWER(name)=LOWER('${username}')`;
+      query += ` AND name='${username}'`;
     }
 
     // STAFF FILTER (admin only)
     if (role === "admin" && staffFilter !== "all") {
-      query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+      query += ` AND name='${staffFilter}'`;
     }
 
     // DEPARTMENT FILTER (checklist only)
     if (dashboardType === "checklist" && departmentFilter !== "all") {
-      query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
+      query += ` AND department='${departmentFilter}'`;
     }
 
     const result = await pool.query(query);
-    res.json(Number(result.rows[0].count));
+    res.json({ count: Number(result.rows[0].count) });
   } catch (err) {
     console.error("TOTAL ERROR:", err.message);
     res.status(500).json({ error: "Error fetching total tasks" });
@@ -456,7 +483,7 @@ export const getCompletedTask = async (req, res) => {
     const { firstDayStr, currentDayStr } = getCurrentMonthRange();
 
     if (dashboardType === "checklist") {
-      const completed = await countChecklistSources(
+      const result = await countChecklistSources(
         {
           staffFilter,
           departmentFilter,
@@ -468,14 +495,14 @@ export const getCompletedTask = async (req, res) => {
           if (source.name === "maintenance") {
             conditions.push(`${source.submissionColumn} IS NOT NULL`);
           } else if (source.statusColumnSafe && source.statusColumn) {
-            conditions.push(`LOWER(${source.statusColumn}) = 'yes'`);
+            conditions.push(`LOWER(${source.statusColumn}::text) = 'yes'`);
           }
 
           return { conditions, params };
         }
       );
 
-      return res.json(completed);
+      return res.json(result);
     }
 
     let query = `
@@ -491,13 +518,13 @@ export const getCompletedTask = async (req, res) => {
       query += ` AND submission_date IS NOT NULL `;
     }
 
-    if (role === "user" && username) query += ` AND LOWER(name)=LOWER('${username}')`;
-    if (role === "admin" && staffFilter !== "all") query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+    if (role === "user" && username) query += ` AND name='${username}'`;
+    if (role === "admin" && staffFilter !== "all") query += ` AND name='${staffFilter}'`;
     if (dashboardType === "checklist" && departmentFilter !== "all")
-      query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
+      query += ` AND department='${departmentFilter}'`;
 
     const result = await pool.query(query);
-    res.json(Number(result.rows[0].count));
+    res.json({ count: Number(result.rows[0].count) });
   } catch (err) {
     console.error("COMPLETED ERROR:", err.message);
     res.status(500).json({ error: "Error fetching completed tasks" });
@@ -513,7 +540,7 @@ export const getPendingTask = async (req, res) => {
     const table = dashboardType;
 
     if (dashboardType === "checklist") {
-      const pending = await countUnifiedChecklistRows({
+      const result = await countUnifiedChecklistRows({
         staffFilter,
         departmentFilter,
         role,
@@ -521,7 +548,7 @@ export const getPendingTask = async (req, res) => {
         taskView: "recent"
       });
 
-      return res.json(pending);
+      return res.json(result);
     }
 
     // Align with "recent" list logic: only today's tasks that are not submitted
@@ -534,17 +561,17 @@ export const getPendingTask = async (req, res) => {
 
     // Role filter
     if (role === "user" && username)
-      query += ` AND LOWER(name)=LOWER('${username}')`;
+      query += ` AND name='${username}'`;
 
     if (role === "admin" && staffFilter !== "all")
-      query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
+      query += ` AND name='${staffFilter}'`;
 
     // Department filter
     if (dashboardType === "checklist" && departmentFilter !== "all")
-      query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
+      query += ` AND department='${departmentFilter}'`;
 
     const result = await pool.query(query);
-    res.json(Number(result.rows[0].count));
+    res.json({ count: Number(result.rows[0].count) });
 
   } catch (err) {
     console.error("PENDING ERROR:", err.message);
@@ -568,17 +595,17 @@ export const getPendingToday = async (req, res) => {
     `;
 
     if (role === "user" && username) {
-      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      query += ` AND name=$${idx++}`;
       params.push(username);
     }
 
     if (role === "admin" && staffFilter !== "all") {
-      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      query += ` AND name=$${idx++}`;
       params.push(staffFilter);
     }
 
     if (dashboardType === "checklist" && departmentFilter !== "all") {
-      query += ` AND LOWER(department)=LOWER($${idx++})`;
+      query += ` AND department=$${idx++}`;
       params.push(departmentFilter);
     }
 
@@ -605,17 +632,17 @@ export const getCompletedToday = async (req, res) => {
     `;
 
     if (role === "user" && username) {
-      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      query += ` AND name=$${idx++}`;
       params.push(username);
     }
 
     if (role === "admin" && staffFilter !== "all") {
-      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      query += ` AND name=$${idx++}`;
       params.push(staffFilter);
     }
 
     if (dashboardType === "checklist" && departmentFilter !== "all") {
-      query += ` AND LOWER(department)=LOWER($${idx++})`;
+      query += ` AND department=$${idx++}`;
       params.push(departmentFilter);
     }
 
@@ -637,7 +664,7 @@ export const getUpcomingTask = async (req, res) => {
     const { firstDayStr, currentDayStr } = getCurrentMonthRange();
 
     if (dashboardType === "checklist") {
-      const upcoming = await countChecklistSources(
+      const result = await countChecklistSources(
         {
           staffFilter,
           departmentFilter,
@@ -657,7 +684,7 @@ export const getUpcomingTask = async (req, res) => {
         }
       );
 
-      return res.json(upcoming);
+      return res.json(result);
     }
 
     if (dashboardType === "maintenance") {
@@ -675,7 +702,7 @@ export const getUpcomingTask = async (req, res) => {
       // but usually maintenance dashboard doesn't filter by department in the same way or uses 'doer_department'.
 
       const result = await maintenancePool.query(query);
-      return res.json(Number(result.rows[0].count || 0));
+      return res.json({ count: Number(result.rows[0].count || 0) });
     }
 
     let query = `
@@ -698,7 +725,7 @@ export const getUpcomingTask = async (req, res) => {
     }
 
     const result = await pool.query(query);
-    res.json(Number(result.rows[0].count || 0));
+    res.json({ count: Number(result.rows[0].count || 0) });
 
   } catch (err) {
     console.error("❌ UPCOMING ERROR:", err.message);
@@ -715,14 +742,14 @@ export const getOverdueTask = async (req, res) => {
     let idx = 1;
 
     if (dashboardType === "checklist") {
-      const overdue = await countUnifiedChecklistRows({
+      const result = await countUnifiedChecklistRows({
         staffFilter,
         departmentFilter,
         role,
         username,
         taskView: "overdue"
       });
-      return res.json(overdue);
+      return res.json(result);
     }
 
     // Align with task list overdue view: before today and not submitted
@@ -735,23 +762,23 @@ export const getOverdueTask = async (req, res) => {
 
     // Role filter
     if (role === "user" && username) {
-      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      query += ` AND name=$${idx++}`;
       params.push(username);
     }
 
     if (role === "admin" && staffFilter !== "all") {
-      query += ` AND LOWER(name)=LOWER($${idx++})`;
+      query += ` AND name=$${idx++}`;
       params.push(staffFilter);
     }
 
     // Department filter
     if (dashboardType === "checklist" && departmentFilter !== "all") {
-      query += ` AND LOWER(department)=LOWER($${idx++})`;
+      query += ` AND department=$${idx++}`;
       params.push(departmentFilter);
     }
 
     const result = await pool.query(query, params);
-    res.json(Number(result.rows[0].count));
+    res.json({ count: Number(result.rows[0].count) });
 
   } catch (err) {
     console.error("OVERDUE ERROR:", err.message);
@@ -763,16 +790,8 @@ export const getOverdueTask = async (req, res) => {
 
 export const getUniqueDepartments = async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT DISTINCT department
-FROM users
-WHERE department IS NOT NULL
-  AND department != ''
-ORDER BY department ASC;
-
-    `);
-
-    res.json(result.rows.map(d => d.department));
+    const departments = await getUniqueDepartmentsService();
+    res.json(departments);
   } catch (err) {
     console.error("DEPARTMENTS ERROR:", err.message);
     res.status(500).json({ error: "Error fetching departments" });
@@ -1025,17 +1044,17 @@ export const getDashboardDataCount = async (req, res) => {
 
     // ROLE FILTER (USER)
     if (role === "user" && username) {
-      query += ` AND LOWER(name) = LOWER('${username}')`;
+      query += ` AND name = '${username}'`;
     }
 
     // ADMIN STAFF FILTER
     if (role === "admin" && staffFilter !== "all") {
-      query += ` AND LOWER(name) = LOWER('${staffFilter}')`;
+      query += ` AND name = '${staffFilter}'`;
     }
 
     // DEPARTMENT FILTER (checklist only)
     if (dashboardType === "checklist" && departmentFilter !== "all") {
-      query += ` AND LOWER(department) = LOWER('${departmentFilter}')`;
+      query += ` AND department = '${departmentFilter}'`;
     }
 
     // TASK VIEW LOGIC
@@ -1120,19 +1139,19 @@ export const getChecklistDateRangeCount = async (req, res) => {
 
     // ROLE FILTER (USER)
     if (role === "user" && username) {
-      query += ` AND LOWER(name) = LOWER($${idx++})`;
+      query += ` AND name = $${idx++}`;
       params.push(username);
     }
 
     // ADMIN STAFF FILTER
     if (role === "admin" && staffFilter !== "all") {
-      query += ` AND LOWER(name) = LOWER($${idx++})`;
+      query += ` AND name = $${idx++}`;
       params.push(staffFilter);
     }
 
     // DEPARTMENT FILTER
     if (departmentFilter !== "all") {
-      query += ` AND LOWER(department) = LOWER($${idx++})`;
+      query += ` AND department = $${idx++}`;
       params.push(departmentFilter);
     }
 
@@ -1167,36 +1186,35 @@ export const getChecklistDateRangeCount = async (req, res) => {
 export const getNotDoneTask = async (req, res) => {
   try {
     const { dashboardType, staffFilter, departmentFilter, role, username } = req.query;
+    const debug = req.query.debug === "true";
 
     if (dashboardType === "checklist") {
-      let params = [];
-      let idx = 1;
-
-      // Base query - explicit Status 'no'
-      let query = `
-          SELECT COUNT(*) AS count
-          FROM checklist
-          WHERE LOWER(status::text) = 'no'
-        `;
-
-      if (role === "admin" && staffFilter !== "all") {
-        query += ` AND LOWER(name) = LOWER($${idx++})`;
-        params.push(staffFilter);
+      try {
+        await refreshDeviceSync();
+      } catch (e) {
+        console.error("NotDone Sync Error (continuing):", e);
       }
 
-      if (role === "user" && username) {
-        query += ` AND LOWER(name) = LOWER($${idx++})`;
-        params.push(username);
-      }
+      const result = await countChecklistSources(
+        {
+          staffFilter,
+          departmentFilter,
+          role,
+          username,
+          taskView: "ignore_date"
+        },
+        ({ source, conditions, params }) => {
+          // Add Not Done logic
+          if (source.name === "maintenance") {
+            conditions.push(`LOWER("Status") = 'no'`);
+          } else {
+            conditions.push(`LOWER(status::text) = 'no'`);
+          }
+          return { conditions, params };
+        }
+      );
 
-      if (departmentFilter !== "all") {
-        query += ` AND LOWER(department) = LOWER($${idx++})`;
-        params.push(departmentFilter);
-      }
-
-      const result = await pool.query(query, params);
-      const count = Number(result.rows[0].count || 0);
-      return res.json(count);
+      return res.json(result);
     }
 
     if (dashboardType === "maintenance") {
@@ -1212,29 +1230,111 @@ export const getNotDoneTask = async (req, res) => {
        `;
 
       if (role === "admin" && staffFilter !== "all") {
-        query += ` AND LOWER("Doer_Name") = LOWER($${idx++})`;
+        query += ` AND "Doer_Name" = $${idx++}`;
         params.push(staffFilter);
       }
 
       if (role === "user" && username) {
-        query += ` AND LOWER("Doer_Name") = LOWER($${idx++})`;
+        query += ` AND "Doer_Name" = $${idx++}`;
         params.push(username);
       }
 
       if (departmentFilter !== "all") {
-        query += ` AND LOWER("machine_department") = LOWER($${idx++})`;
+        query += ` AND "machine_department" = $${idx++}`;
         params.push(departmentFilter);
       }
 
+      log("NOT DONE (maintenance) QUERY =>", query, "PARAMS =>", params);
       const result = await maintenancePool.query(query, params);
       const count = Number(result.rows[0].count || 0);
-      return res.json(count);
+      log("NOT DONE (maintenance) COUNT =>", count);
+      return res.json({ count });
     }
 
-    return res.json(0);
+    return res.json({ count: 0 });
 
   } catch (err) {
     console.error("NOT DONE TASK COUNT ERROR:", err.message);
     res.status(500).json({ error: "Error fetching not done task count" });
   }
 };
+
+export const getNotDoneTaskList = async (req, res) => {
+  try {
+    // ✅ Optional: Keep if you REALLY want list call to also force sync
+    // If you already run sync in setInterval, you can remove this line to reduce load.
+    // Optimization: Fire and forget to avoid blocking UI
+    refreshDeviceSync().catch(err => console.error("Background sync error:", err));
+
+    const {
+      role,
+      username,
+      staffFilter = "all",
+      departmentFilter = "all",
+      date,
+      page = 1,
+      limit = 50
+    } = req.query;
+
+    // ✅ IST-safe date (YYYY-MM-DD)
+    const targetDate =
+      date ||
+      new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+    const normalizedPage = Math.max(parseInt(page, 10) || 1, 1);
+    const normalizedLimit = Math.max(parseInt(limit, 10) || 50, 1);
+    const offset = (normalizedPage - 1) * normalizedLimit;
+
+    // ✅ Case-safe status check
+    const conditions = [
+      `LOWER(status::text) = 'no'`,
+      `submission_date IS NULL`,
+      `task_start_date::date = $1::date`
+    ];
+
+    const params = [targetDate];
+    let idx = 2;
+
+    if (role === "user" && username) {
+      conditions.push(`name = $${idx++}`);
+      params.push(username);
+    } else if (role === "admin" && staffFilter !== "all") {
+      conditions.push(`name = $${idx++}`);
+      params.push(staffFilter);
+    }
+
+    if (departmentFilter !== "all") {
+      conditions.push(`department = $${idx++}`);
+      params.push(departmentFilter);
+    }
+
+    const query = `
+      SELECT *,
+        COUNT(*) OVER() AS total_count
+      FROM checklist
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY task_start_date ASC
+      LIMIT $${idx++}
+      OFFSET $${idx++}
+    `;
+
+    params.push(normalizedLimit, offset);
+
+    const result = await pool.query(query, params);
+    const total = Number(result.rows[0]?.total_count || 0);
+
+    const cleanRows = result.rows.map(({ total_count, ...rest }) => rest);
+
+    return res.json({
+      page: normalizedPage,
+      limit: normalizedLimit,
+      total,
+      date: targetDate,      // ✅ helpful for UI debugging
+      data: cleanRows
+    });
+  } catch (err) {
+    console.error("NOT DONE TASK LIST ERROR:", err);
+    return res.status(500).json({ error: "Error fetching not done task list" });
+  }
+};
+

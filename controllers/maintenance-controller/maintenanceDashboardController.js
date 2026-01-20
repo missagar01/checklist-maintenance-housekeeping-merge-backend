@@ -41,46 +41,37 @@ export const getDashboardStats = async (req, res) => {
       username,
     };
 
-    // Get summary stats using service
-    const summary = await getMaintenanceDashboardSummaryService(params);
-
-    // Get total machines count
+    // ✅ OPTIMIZED: Run independent queries in parallel
     const totalMachineQuery = `
       SELECT COUNT(*) AS total_machines
       FROM form_responses;
     `;
-    const machinesRes = await maintenancePool.query(totalMachineQuery);
-    const totalMachines = machinesRes.rows[0].total_machines;
 
-    // Calculate total maintenance cost
-    let totalMaintenanceCost = 0;
+    // Construct cost query safely
+    let costQuery = `
+      SELECT COALESCE(SUM("Maintenance_Cost"), 0) AS total_maintenance_cost
+      FROM maintenance_task_assign
+      WHERE "Actual_Date" IS NOT NULL
+    `;
+    const costParams = [];
+
     if (role === "user" && username) {
-      const costQuery = `
-        SELECT COALESCE(SUM("Maintenance_Cost"), 0) AS total_maintenance_cost
-        FROM maintenance_task_assign
-        WHERE "Actual_Date" IS NOT NULL
-        AND LOWER("Doer_Name") = LOWER($1)
-      `;
-      const costRes = await maintenancePool.query(costQuery, [username]);
-      totalMaintenanceCost = Number(costRes.rows[0]?.total_maintenance_cost || 0);
+      costQuery += ` AND LOWER("Doer_Name") = LOWER($1)`;
+      costParams.push(username);
     } else if (staffFilter && staffFilter !== "all" && role === "admin") {
-      const costQuery = `
-        SELECT COALESCE(SUM("Maintenance_Cost"), 0) AS total_maintenance_cost
-        FROM maintenance_task_assign
-        WHERE "Actual_Date" IS NOT NULL
-        AND LOWER("Doer_Name") = LOWER($1)
-      `;
-      const costRes = await maintenancePool.query(costQuery, [staffFilter]);
-      totalMaintenanceCost = Number(costRes.rows[0]?.total_maintenance_cost || 0);
-    } else {
-      const costQuery = `
-        SELECT COALESCE(SUM("Maintenance_Cost"), 0) AS total_maintenance_cost
-        FROM maintenance_task_assign
-        WHERE "Actual_Date" IS NOT NULL
-      `;
-      const costRes = await maintenancePool.query(costQuery);
-      totalMaintenanceCost = Number(costRes.rows[0]?.total_maintenance_cost || 0);
+      // NOTE: Original logic had implicit $1 here for staffFilter
+      costQuery += ` AND LOWER("Doer_Name") = LOWER($1)`;
+      costParams.push(staffFilter);
     }
+
+    const [summary, machinesRes, costRes] = await Promise.all([
+      getMaintenanceDashboardSummaryService(params),
+      maintenancePool.query(totalMachineQuery),
+      maintenancePool.query(costQuery, costParams)
+    ]);
+
+    const totalMachines = machinesRes.rows[0].total_machines;
+    const totalMaintenanceCost = Number(costRes.rows[0]?.total_maintenance_cost || 0);
 
     res.json({
       success: true,
@@ -216,23 +207,25 @@ export const getTodayTasks = async (req, res) => {
       username = null,
     } = req.query;
 
-    const tasks = await fetchMaintenanceDashboardDataService({
-      staffFilter,
-      departmentFilter,
-      page: Number(page),
-      limit: Number(limit),
-      taskView: "recent",
-      role,
-      username,
-    });
-
-    const totalCount = await countMaintenanceTaskByViewService({
-      taskView: "recent",
-      staffFilter,
-      departmentFilter,
-      role,
-      username,
-    });
+    // ✅ OPTIMIZED: Run fetch and count in parallel
+    const [tasks, totalCount] = await Promise.all([
+      fetchMaintenanceDashboardDataService({
+        staffFilter,
+        departmentFilter,
+        page: Number(page),
+        limit: Number(limit),
+        taskView: "recent",
+        role,
+        username,
+      }),
+      countMaintenanceTaskByViewService({
+        taskView: "recent",
+        staffFilter,
+        departmentFilter,
+        role,
+        username,
+      })
+    ]);
 
     res.json({
       success: true,
@@ -262,23 +255,25 @@ export const getUpcomingTasks = async (req, res) => {
       username = null,
     } = req.query;
 
-    const tasks = await fetchMaintenanceDashboardDataService({
-      staffFilter,
-      departmentFilter,
-      page: Number(page),
-      limit: Number(limit),
-      taskView: "upcoming",
-      role,
-      username,
-    });
-
-    const totalCount = await countMaintenanceTaskByViewService({
-      taskView: "upcoming",
-      staffFilter,
-      departmentFilter,
-      role,
-      username,
-    });
+    // ✅ OPTIMIZED: Run fetch and count in parallel
+    const [tasks, totalCount] = await Promise.all([
+      fetchMaintenanceDashboardDataService({
+        staffFilter,
+        departmentFilter,
+        page: Number(page),
+        limit: Number(limit),
+        taskView: "upcoming",
+        role,
+        username,
+      }),
+      countMaintenanceTaskByViewService({
+        taskView: "upcoming",
+        staffFilter,
+        departmentFilter,
+        role,
+        username,
+      })
+    ]);
 
     res.json({
       success: true,
@@ -308,23 +303,25 @@ export const getOverdueTasks = async (req, res) => {
       username = null,
     } = req.query;
 
-    const tasks = await fetchMaintenanceDashboardDataService({
-      staffFilter,
-      departmentFilter,
-      page: Number(page),
-      limit: Number(limit),
-      taskView: "overdue",
-      role,
-      username,
-    });
-
-    const totalCount = await countMaintenanceTaskByViewService({
-      taskView: "overdue",
-      staffFilter,
-      departmentFilter,
-      role,
-      username,
-    });
+    // ✅ OPTIMIZED: Run fetch and count in parallel
+    const [tasks, totalCount] = await Promise.all([
+      fetchMaintenanceDashboardDataService({
+        staffFilter,
+        departmentFilter,
+        page: Number(page),
+        limit: Number(limit),
+        taskView: "overdue",
+        role,
+        username,
+      }),
+      countMaintenanceTaskByViewService({
+        taskView: "overdue",
+        staffFilter,
+        departmentFilter,
+        role,
+        username,
+      })
+    ]);
 
     res.json({
       success: true,
@@ -355,23 +352,25 @@ export const getDashboardData = async (req, res) => {
       username = null,
     } = req.query;
 
-    const tasks = await fetchMaintenanceDashboardDataService({
-      staffFilter,
-      departmentFilter,
-      page: Number(page),
-      limit: Number(limit),
-      taskView,
-      role,
-      username,
-    });
-
-    const totalCount = await countMaintenanceTaskByViewService({
-      taskView,
-      staffFilter,
-      departmentFilter,
-      role,
-      username,
-    });
+    // ✅ OPTIMIZED: Run fetch and count in parallel
+    const [tasks, totalCount] = await Promise.all([
+      fetchMaintenanceDashboardDataService({
+        staffFilter,
+        departmentFilter,
+        page: Number(page),
+        limit: Number(limit),
+        taskView,
+        role,
+        username,
+      }),
+      countMaintenanceTaskByViewService({
+        taskView,
+        staffFilter,
+        departmentFilter,
+        role,
+        username,
+      })
+    ]);
 
     res.json({
       success: true,

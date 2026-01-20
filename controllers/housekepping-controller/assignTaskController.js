@@ -80,7 +80,7 @@ const normalizeDepartmentValue = (value) => {
 const parseDepartments = (value) => {
   if (!value) return [];
   if (typeof value !== 'string') return Array.isArray(value) ? value.map(normalizeDepartmentValue).filter(Boolean) : [];
-  
+
   // Handle comma-separated departments - split by comma and normalize each
   return value
     .split(',')
@@ -97,7 +97,7 @@ const resolveDepartment = (req) => {
   // Try both lowercase and original case for compatibility
   const role = req.headers['x-user-role'] || req.headers['X-User-Role'] || req.query?.role || '';
   const roleLower = role ? String(role).toLowerCase() : '';
-  
+
   // For user role, prioritize user_access1 from header/query (not from JWT token)
   if (roleLower === 'user') {
     // Get user_access1 from header or query parameter (not from JWT token)
@@ -313,7 +313,7 @@ const assignTaskController = {
     }
   },
 
- 
+
   async overdue(req, res, next) {
     try {
       const limit = parsePositiveInt(req.query?.limit, { max: 100, defaultValue: 100 });

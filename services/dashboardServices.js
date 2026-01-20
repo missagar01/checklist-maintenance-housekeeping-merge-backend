@@ -1,4 +1,4 @@
-import pool from "../config/db.js";
+import { pool } from "../config/db.js";
 
 const getTableName = (dashboardType) =>
   dashboardType === "delegation" ? "delegation" : "checklist";
@@ -388,11 +388,20 @@ export const countOverDueORExtendedTaskService = async ({
 // SUMMARY
 // ─────────────────────────────────────────────
 export const getDashboardSummaryService = async (params) => {
-  const totalTasks = await countTotalTaskService(params);
-  const completedTasks = await countCompleteTaskService(params);
-  const pendingTasks = await countPendingOrDelayTaskService(params);
-  const overdueTasks = await countOverDueORExtendedTaskService(params);
-  const upcomingTasks = await countUpcomingTaskService(params);
+  // ✅ OPTIMIZED: Run all count queries in parallel
+  const [
+    totalTasks,
+    completedTasks,
+    pendingTasks,
+    overdueTasks,
+    upcomingTasks
+  ] = await Promise.all([
+    countTotalTaskService(params),
+    countCompleteTaskService(params),
+    countPendingOrDelayTaskService(params),
+    countOverDueORExtendedTaskService(params),
+    countUpcomingTaskService(params)
+  ]);
 
   const completionRate =
     totalTasks > 0 ? Number(((completedTasks / totalTasks) * 100).toFixed(1)) : 0;
@@ -887,4 +896,4 @@ export const fetchChecklistDateRangeStatsService = async ({
     throw new Error(error.message);
   }
 };
-s
+

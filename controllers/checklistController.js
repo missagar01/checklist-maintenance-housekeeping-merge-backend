@@ -1,31 +1,37 @@
 import { pool } from "../config/db.js";
-
 import upload, { uploadToS3 } from "../middleware/s3Upload.js";
+
 // -----------------------------------------
 // 1️⃣ GET PENDING CHECKLIST
+// -----------------------------------------
 export const getPendingChecklist = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const username = req.query.username;
     const role = req.query.role;
+    const departments = req.query.departments
+      ? req.query.departments.split(',').map(d => d.trim()).filter(Boolean)
+      : [];
 
     const limit = 50;
     const offset = (page - 1) * limit;
 
-    // let where = `
-    //   submission_date IS NULL
-    //   AND task_start_date <= NOW()
-    // `;
-
     let where = `
-  submission_date IS NULL
+   submission_date IS NULL AND user_status_checklist IS NULL
+  AND (status IS NULL OR LOWER(status::text) <> 'no')
   AND DATE(task_start_date) <= CURRENT_DATE
 `;
 
-
-    // ⭐ If user is NOT admin → filter by name
+    // ⭐ If user is NOT admin → filter by name OR department
     if (role !== "admin" && username) {
-      where += ` AND LOWER(name) = LOWER('${username}') `;
+      if (departments.length > 0) {
+        // Safe parameter injection would be better, but building string for 'ANY' syntax is acceptable here if sanitized or trusted enough
+        // Ideally use parameterized queries completely. 
+        const deptArray = departments.map(d => `'${d.toLowerCase()}'`).join(',');
+        where += ` AND (LOWER(name) = LOWER('${username}') OR LOWER(department) = ANY(ARRAY[${deptArray}])) `;
+      } else {
+        where += ` AND LOWER(name) = LOWER('${username}') `;
+      }
     }
 
     const query = `
@@ -53,8 +59,6 @@ export const getPendingChecklist = async (req, res) => {
 };
 
 
-
-
 // -----------------------------------------
 // 2️⃣ GET HISTORY CHECKLIST
 // -----------------------------------------
@@ -63,15 +67,23 @@ export const getChecklistHistory = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const username = req.query.username;
     const role = req.query.role;
+    const departments = req.query.departments
+      ? req.query.departments.split(',').map(d => d.trim()).filter(Boolean)
+      : [];
 
     const limit = 50;
     const offset = (page - 1) * limit;
 
     let where = `submission_date IS NOT NULL`;
 
-    // ⭐ Normal users see only their own tasks
+    // ⭐ Normal users see only their own tasks or department tasks
     if (role !== "admin" && username) {
-      where += ` AND LOWER(name) = LOWER('${username}') `;
+      if (departments.length > 0) {
+        const deptArray = departments.map(d => `'${d.toLowerCase()}'`).join(',');
+        where += ` AND (LOWER(name) = LOWER('${username}') OR LOWER(department) = ANY(ARRAY[${deptArray}])) `;
+      } else {
+        where += ` AND LOWER(name) = LOWER('${username}') `;
+      }
     }
 
     const query = `
@@ -99,7 +111,6 @@ export const getChecklistHistory = async (req, res) => {
 };
 
 
-
 // -----------------------------------------
 // 3️⃣ UPDATE CHECKLIST (User Submit)
 // -----------------------------------------
@@ -110,40 +121,37 @@ export const updateChecklist = async (req, res) => {
     if (!Array.isArray(items) || items.length === 0)
       return res.status(400).json({ error: "Invalid data" });
 
-    const client = await pool.connect();
-
-    try {
-      await client.query("BEGIN");
-
-      for (const item of items) {
-        // 🔥 Fix status
-        const safeStatus =
-          (item.status || "").toLowerCase() === "yes" ? "yes" : "no";
-
-        // ---------------------------------
-        // 🔥🔥 FIX: IMAGE HANDLING
-        // ---------------------------------
+    // ✅ OPTIMIZED: Process S3 uploads in parallel BEFORE transaction
+    const processedItems = await Promise.all(
+      items.map(async (item) => {
         let finalImageUrl = null;
-
         if (item.image && typeof item.image === "string") {
           if (item.image.startsWith("data:image")) {
-            // Base64 → Buffer
             const base64Data = item.image.split(";base64,").pop();
             const buffer = Buffer.from(base64Data, "base64");
-
             const fakeFile = {
               originalname: `task_${item.taskId}_${Date.now()}.jpg`,
               buffer,
               mimetype: "image/jpeg",
             };
-
-            // Upload to S3
             finalImageUrl = await uploadToS3(fakeFile);
           } else {
-            // Already S3 URL or old string
             finalImageUrl = item.image;
           }
         }
+        return { ...item, finalImageUrl };
+      })
+    );
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      for (const item of processedItems) {
+        // 🔥 Fix status
+        const safeStatus =
+          (item.status || "").toLowerCase() === "yes" ? "yes" : "no";
 
         // ---------------------------------
         // 🔥 SAVE TO DATABASE
@@ -151,9 +159,9 @@ export const updateChecklist = async (req, res) => {
         const sql = `
           UPDATE checklist
           SET 
-           status = $1,
+            status = $1,
             remark = $2,
-            submission_date = NOW(),
+            submission_date = NULL,
             image = $3
           WHERE task_id = $4
         `;
@@ -161,7 +169,7 @@ export const updateChecklist = async (req, res) => {
         await client.query(sql, [
           safeStatus,
           item.remarks || "",
-          finalImageUrl,
+          item.finalImageUrl,
           item.taskId,
         ]);
       }
@@ -181,9 +189,223 @@ export const updateChecklist = async (req, res) => {
 };
 
 
+// -----------------------------------------
+// 🔁 POST REMARK + USER STATUS (minimal payload)
+// -----------------------------------------
+export const submitChecklistRemarkAndUserStatus = async (req, res) => {
+  try {
+    const payload = Array.isArray(req.body) ? req.body : [req.body];
+
+    const normalizedItems = payload
+      .map((item) => {
+        if (!item) return null;
+
+        const taskId = item.taskId ?? item.task_id ?? item.task_id_fk;
+        if (!taskId) return null;
+
+        // ✅ remark support
+        const remark =
+          Object.prototype.hasOwnProperty.call(item, "remark")
+            ? item.remark
+            : Object.prototype.hasOwnProperty.call(item, "remarks")
+              ? item.remarks
+              : undefined;
+
+        // ✅ user status support (handle multiple key names + typo)
+        const userStatusChecklist =
+          Object.prototype.hasOwnProperty.call(item, "user_status_checklist")
+            ? item.user_status_checklist
+            : Object.prototype.hasOwnProperty.call(item, "userStatusChecklist")
+              ? item.userStatusChecklist
+              : Object.prototype.hasOwnProperty.call(item, "user_staus_checklist") // typo support
+                ? item.user_staus_checklist
+                : undefined;
+
+        return { taskId, remark, userStatusChecklist };
+      })
+      .filter(Boolean);
+
+    if (normalizedItems.length === 0) {
+      return res.status(400).json({ error: "taskId is required" });
+    }
+
+    const actionableItems = normalizedItems.filter(
+      (item) =>
+        typeof item.remark !== "undefined" ||
+        typeof item.userStatusChecklist !== "undefined"
+    );
+
+    if (actionableItems.length === 0) {
+      return res.status(400).json({
+        error: "Provide remark or user_status_checklist to update",
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      // ✅ Check if column exists: user_status_checklist
+      const columnRes = await client.query(`
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = CURRENT_SCHEMA()
+          AND table_name = 'checklist'
+          AND column_name = 'user_status_checklist'
+      `);
+      const hasUserStatusColumn = columnRes.rowCount > 0;
+
+      await client.query("BEGIN");
+
+      for (const item of actionableItems) {
+        const setClauses = [];
+        const values = [];
+        let paramIndex = 1;
+
+        if (typeof item.remark !== "undefined") {
+          setClauses.push(`remark = $${paramIndex++}`);
+          values.push(item.remark ?? null);
+        }
+
+        if (hasUserStatusColumn && typeof item.userStatusChecklist !== "undefined") {
+          setClauses.push(`user_status_checklist = $${paramIndex++}`); // SQL column name is user_status_checklist
+          values.push(item.userStatusChecklist ?? null);
+        }
+
+        if (setClauses.length === 0) continue;
+
+        values.push(item.taskId);
+
+        const sql = `
+          UPDATE checklist
+          SET ${setClauses.join(", ")}
+          WHERE task_id = $${paramIndex}
+        `;
+
+        await client.query(sql, values);
+      }
+
+      await client.query("COMMIT");
+      res.json({ message: "Checklist remark and user status saved" });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("❌ submitChecklistRemarkAndUserStatus Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 
 // -----------------------------------------
-// 4️⃣ ADMIN DONE UPDATE
+// 🪄 PATCH STATUS ONLY
+// -----------------------------------------
+export const patchChecklistStatus = async (req, res) => {
+  try {
+    const payload = Array.isArray(req.body) ? req.body : [req.body];
+    const normalizedItems = payload
+      .map((item) => {
+        if (!item) return null;
+        const taskId = item.taskId ?? item.task_id;
+        const status =
+          Object.prototype.hasOwnProperty.call(item, "status") &&
+            item.status !== undefined
+            ? item.status
+            : undefined;
+
+        if (!taskId || typeof status === "undefined") return null;
+
+        return { taskId, status };
+      })
+      .filter(Boolean);
+
+    if (normalizedItems.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "Provide taskId and status for each entry" });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const sql = `
+        UPDATE checklist
+        SET status = $1,
+            submission_date = NOW()
+        WHERE task_id = $2
+      `;
+
+      for (const item of normalizedItems) {
+        const safeStatus =
+          typeof item.status === "string"
+            ? item.status
+            : String(item.status);
+        await client.query(sql, [safeStatus, item.taskId]);
+      }
+
+      await client.query("COMMIT");
+      res.json({ message: "Checklist status updated" });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("❌ patchChecklistStatus Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+// -----------------------------------------
+// 4️⃣ HR MANAGER UPDATE
+// -----------------------------------------
+export const updateHrManagerChecklist = async (req, res) => {
+  try {
+    const items = req.body;
+
+    if (!Array.isArray(items) || items.length === 0)
+      return res.status(400).json({ error: "Invalid data" });
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const sql = `
+        UPDATE checklist
+        SET admin_done = $1,status = $2,
+            submission_date = NOW()
+        
+        WHERE task_id = $3
+      `;
+
+      for (const item of items) {
+        const adminStatus = item.admin_done ?? "Confirmed";
+        await client.query(sql, [adminStatus, item.status, item.taskId]);
+      }
+
+      await client.query("COMMIT");
+      res.json({ message: "Checklist admin roles updated" });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("❌ updateHrManagerChecklist Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// -----------------------------------------
+// 5️⃣ ADMIN DONE UPDATE
 // -----------------------------------------
 export const adminDoneChecklist = async (req, res) => {
   try {
@@ -207,5 +429,142 @@ export const adminDoneChecklist = async (req, res) => {
   } catch (err) {
     console.error("❌ adminDoneChecklist Error:", err);
     res.status(500).json({ error: err.message });
+  }
+};
+
+
+// -----------------------------------------
+// 3️⃣ GET CHECKLIST FOR HR APPROVAL
+// -----------------------------------------
+export const getChecklistForHrApproval = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const departments = req.query.departments
+      ? req.query.departments.split(",").map(d => d.trim()).filter(Boolean)
+      : [];
+
+    const limit = 50;
+    const offset = (page - 1) * limit;
+
+    let where = `
+      user_status_checklist IS NOT NULL
+      AND user_status_checklist IN ('Yes', 'No')
+      AND submission_date IS NULL
+    `;
+
+    // ✅ HR should see only department-related data
+    if (departments.length > 0) {
+      const deptArray = departments
+        .map(d => `'${d.toLowerCase()}'`)
+        .join(",");
+
+      where += ` AND LOWER(department) = ANY(ARRAY[${deptArray}]) `;
+    }
+
+    const query = `
+      SELECT *,
+        COUNT(*) OVER() AS total_count
+      FROM checklist
+      WHERE ${where}
+      ORDER BY task_start_date ASC
+      LIMIT $1 OFFSET $2
+    `;
+
+    const { rows } = await pool.query(query, [limit, offset]);
+    const totalCount = rows.length > 0 ? rows[0].total_count : 0;
+
+    res.json({
+      success: true,
+      message: "Checklist data for HR approval",
+      data: rows,
+      page,
+      totalCount,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching HR approval checklist:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+// -----------------------------------------
+// 6️⃣ GET UNIQUE DEPARTMENTS
+// -----------------------------------------
+export const getChecklistDepartments = async (req, res) => {
+  try {
+    // 1. Fetch from users table (department AND user_access)
+    const usersQuery = `
+      SELECT department, user_access
+      FROM users
+      WHERE role <> 'admin'
+    `;
+    const { rows: userRows } = await pool.query(usersQuery);
+
+    const departments = new Set();
+
+    userRows.forEach((row) => {
+      // Add primary department
+      if (row.department && row.department.trim()) {
+        departments.add(row.department.trim());
+      }
+      // Add departments from user_access (comma-separated)
+      if (row.user_access && row.user_access.trim()) {
+        const accessDepts = row.user_access.split(",");
+        accessDepts.forEach((d) => {
+          if (d && d.trim()) {
+            departments.add(d.trim());
+          }
+        });
+      }
+    });
+
+    // 2. Fetch distinct departments from checklist table (assignments)
+    const checklistQuery = `
+      SELECT DISTINCT department 
+      FROM checklist 
+      WHERE department IS NOT NULL 
+        AND TRIM(department) <> ''
+    `;
+    const { rows: checklistRows } = await pool.query(checklistQuery);
+
+    checklistRows.forEach((row) => {
+      if (row.department && row.department.trim()) {
+        departments.add(row.department.trim());
+      }
+    });
+
+    const sortedDepartments = Array.from(departments).sort();
+
+    // Fallback if empty
+    if (sortedDepartments.length === 0) {
+      return res.json(["Admin", "Housekeeping", "Maintenance"]);
+    }
+
+    res.json(sortedDepartments);
+  } catch (err) {
+    console.error("❌ Error fetching departments:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+// -----------------------------------------
+// 7️⃣ GET UNIQUE DOERS
+// -----------------------------------------
+export const getChecklistDoers = async (req, res) => {
+  try {
+    const query = `
+      SELECT DISTINCT name 
+      FROM checklist 
+      WHERE name IS NOT NULL 
+        AND TRIM(name) <> ''
+      ORDER BY name ASC
+    `;
+
+    const { rows } = await pool.query(query);
+    const doers = rows.map(r => r.name);
+
+    res.json(doers);
+  } catch (err) {
+    console.error("❌ Error fetching doers:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 };
