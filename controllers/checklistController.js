@@ -9,29 +9,18 @@ export const getPendingChecklist = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const username = req.query.username;
     const role = req.query.role;
-    const departments = req.query.departments
-      ? req.query.departments.split(',').map(d => d.trim()).filter(Boolean)
-      : [];
 
     const limit = 50;
     const offset = (page - 1) * limit;
 
     let where = `
-   submission_date IS NULL AND user_status_checklist IS NULL
-  AND (status IS NULL OR LOWER(status::text) <> 'no')
-  AND DATE(task_start_date) <= CURRENT_DATE
-`;
+      submission_date IS NULL
+      AND DATE(task_start_date) <= CURRENT_DATE
+    `;
 
-    // ⭐ If user is NOT admin → filter by name OR department
+    // ⭐ USER FILTER (TRIM FIX APPLIED)
     if (role !== "admin" && username) {
-      if (departments.length > 0) {
-        // Safe parameter injection would be better, but building string for 'ANY' syntax is acceptable here if sanitized or trusted enough
-        // Ideally use parameterized queries completely. 
-        const deptArray = departments.map(d => `'${d.toLowerCase()}'`).join(',');
-        where += ` AND (LOWER(name) = LOWER('${username}') OR LOWER(department) = ANY(ARRAY[${deptArray}])) `;
-      } else {
-        where += ` AND LOWER(name) = LOWER('${username}') `;
-      }
+      where += ` AND TRIM(LOWER(name)) = TRIM(LOWER('${username}')) `;
     }
 
     const query = `
@@ -44,14 +33,9 @@ export const getPendingChecklist = async (req, res) => {
     `;
 
     const { rows } = await pool.query(query, [limit, offset]);
-
     const totalCount = rows.length > 0 ? rows[0].total_count : 0;
 
-    res.json({
-      data: rows,
-      page,
-      totalCount
-    });
+    res.json({ data: rows, page, totalCount });
   } catch (error) {
     console.error("❌ Error fetching pending checklist:", error);
     res.status(500).json({ error: "Internal Server Error" });
