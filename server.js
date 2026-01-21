@@ -2,6 +2,33 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 
+/* =======================
+   LOAD ENV
+======================= */
+dotenv.config();
+
+/* =======================
+   APP INIT
+======================= */
+const app = express();
+
+/* =======================
+   DEPLOY MODE
+   true  -> deploy time (no background jobs)
+   false -> normal runtime
+======================= */
+const DEPLOY_MODE = process.env.DEPLOY_MODE === "true";
+
+/* =======================
+   MIDDLEWARE
+======================= */
+app.use(cors());
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+
+/* =======================
+   ROUTES IMPORT
+======================= */
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import assignTaskRoutes from "./routes/assignTaskRoutes.js";
 import checklistRoutes from "./routes/checklistRoutes.js";
@@ -11,7 +38,7 @@ import staffTasksRoutes from "./routes/staffTasksRoutes.js";
 import quickTaskRoutes from "./routes/quickTaskRoutes.js";
 import loginRoutes from "./routes/loginRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
-import userRoutes from "./routes/userRoutes.js"
+import userRoutes from "./routes/userRoutes.js";
 
 import maintenanceRoutes from "./routes/maintenanceRoutes.js";
 import maintenanceTaskRoutes from "./routes/maintenance-routes/maintenanceTaskRoutes.js";
@@ -28,17 +55,6 @@ import maintenanceDashboardRoutes from "./routes/maintenance-routes/maintenanceD
 
 import housekeepingRoutes from "./routes/housekepping-routes/index.js";
 import { refreshDeviceSync } from "./services/deviceSync.js";
-
-dotenv.config();
-
-const app = express();
-
-/* =======================
-   MIDDLEWARE
-======================= */
-app.use(cors());
-app.use(express.json({ limit: "25mb" }));
-app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 /* =======================
    ROUTES
@@ -70,33 +86,55 @@ app.use("/api/maintenance-dashboard", maintenanceDashboardRoutes);
 app.use("/api/housekeeping-dashboard", housekeepingRoutes);
 
 /* =======================
-   DEVICE SYNC (AUTO)
+   HEALTH CHECK (FAST)
+   ❌ NO DB
+   ❌ NO ASYNC
+======================= */
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    uptime: process.uptime(),
+    pid: process.pid,
+    deployMode: DEPLOY_MODE,
+  });
+});
+
+/* =======================
+   DEVICE SYNC (SAFE)
 ======================= */
 const DEVICE_SYNC_INTERVAL_MS = Number(
   process.env.DEVICE_SYNC_INTERVAL_MS || 5 * 60 * 1000
 );
-const DEVICE_SYNC_ENABLED = process.env.DEVICE_SYNC_ENABLED !== "false";
+
+const DEVICE_SYNC_ENABLED =
+  process.env.DEVICE_SYNC_ENABLED !== "false" && !DEPLOY_MODE;
 
 let isSyncRunning = false;
 
 if (DEVICE_SYNC_ENABLED) {
   const runDeviceSync = async () => {
-    if (isSyncRunning) return; // ✅ prevent overlap
+    if (isSyncRunning) return;
     isSyncRunning = true;
 
     try {
+      console.log("🔄 Device sync started");
       await refreshDeviceSync();
+      console.log("✅ Device sync completed");
     } catch (err) {
-      console.error("DEVICE SYNC ERROR:", err);
+      console.error("❌ DEVICE SYNC ERROR:", err);
     } finally {
       isSyncRunning = false;
     }
   };
 
-  runDeviceSync(); // run once on server start
+  // ❗ Deploy mode me ye block execute hi nahi hota
+  runDeviceSync();
   setInterval(runDeviceSync, DEVICE_SYNC_INTERVAL_MS);
+} else {
+  console.log("⏸️ Device sync disabled (DEPLOY MODE)");
 }
 
+console.log("DEPLOY_MODE:", DEPLOY_MODE);
 console.log("DEVICE_SYNC_ENABLED:", DEVICE_SYNC_ENABLED);
 console.log("DEVICE_SYNC_INTERVAL_MS:", DEVICE_SYNC_INTERVAL_MS);
 
