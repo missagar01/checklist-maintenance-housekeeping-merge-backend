@@ -422,21 +422,15 @@ export const adminDoneChecklist = async (req, res) => {
 // -----------------------------------------
 export const getChecklistForHrApproval = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
     const departments = req.query.departments
-      ? req.query.departments.split(",").map(d => d.trim()).filter(Boolean)
+      ? req.query.departments.split(',').map(d => d.trim()).filter(Boolean)
       : [];
-
-    const limit = 50;
-    const offset = (page - 1) * limit;
 
     let where = `
       user_status_checklist IS NOT NULL
       AND user_status_checklist IN ('Yes', 'No')
       AND submission_date IS NULL
     `;
-
-    // ✅ HR should see only department-related data
     if (departments.length > 0) {
       const deptArray = departments
         .map(d => `'${d.toLowerCase()}'`)
@@ -451,17 +445,17 @@ export const getChecklistForHrApproval = async (req, res) => {
       FROM checklist
       WHERE ${where}
       ORDER BY task_start_date ASC
-      LIMIT $1 OFFSET $2
     `;
 
-    const { rows } = await pool.query(query, [limit, offset]);
+    const { rows } = await pool.query(query);
     const totalCount = rows.length > 0 ? rows[0].total_count : 0;
+
+
 
     res.json({
       success: true,
       message: "Checklist data for HR approval",
       data: rows,
-      page,
       totalCount,
     });
   } catch (error) {

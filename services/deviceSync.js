@@ -76,7 +76,7 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
       WHERE LOWER(name) = ANY($1::text[])
         AND task_start_date::date < $2::date
         AND submission_date IS NULL
-        AND (status IS NULL OR LOWER(status::text) <> 'yes')
+        AND (status IS NULL OR LOWER(status::text) NOT IN ('yes', 'no'))
     `,
     [normalizedNames, targetDate]
   );
