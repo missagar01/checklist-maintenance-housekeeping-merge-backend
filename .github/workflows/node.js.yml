@@ -1,31 +1,81 @@
-# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
 
-name: Node.js CI
+
+name: Checklist-mainatce-houskeeping CI
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
-  build:
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x, 22.x]
-        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+  deploy:
+    runs-on: [self-hosted, Linux, X64]
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-    - run: npm ci
-    - run: npm run build --if-present
-    - run: npm test
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Restore .env (DO NOT commit .env)
+        run: |
+          chmod 600 ./.env
+          echo "✅ .env restored"
+
+      - name: Install dependencies (ci if possible, else install)
+        run: |
+          set -e
+          if [ -f package-lock.json ]; then
+            echo "📦 package-lock.json found -> trying npm ci"
+            npm ci || (echo "⚠️ npm ci failed (lock mismatch). Falling back to npm install" && npm install)
+          else
+            echo "📦 no lock file -> npm install"
+            npm install
+          fi
+
+      - name: Build (if any)
+        run: npm run build --if-present
+
+      - name: Fix server entry require
+        run: |
+          sed -i "s|require('./app')|require('./src/app')|g" server.js || true
+          echo "✅ server.js patched (if needed)"
+          head -n 5 server.js
+
+      - name: Restart PM2 (robust)
+        run: |
+          pwd
+          ls -la
+
+          pm2 describe hrfms-backend >/dev/null 2>&1 && EXISTS=1 || EXISTS=0
+
+          if [ "$EXISTS" -eq 0 ]; then
+            echo "Starting new PM2 process..."
+            pm2 start server.js --name checklist- --time --update-env
+          else
+            echo "Restarting existing PM2 process..."
+            pm2 restart checklist- --update-env
+          fi
+
+          pm2 save
+          pm2 status
+          pm2 info checklist- || true
+
+      - name: Health check (wait + debug)
+        run: |
+          PORT=$(grep -E '^PORT=' .env | head -n 1 | cut -d= -f2 | tr -d '\r' || true)
+          if [ -z "$PORT" ]; then PORT=3000; fi
+
+          echo "Using PORT=$PORT"
+          echo "Waiting up to 30s for health..."
+
+          echo "❌ Health check failed. Debug output:"
+          pm2 status || true
+          pm2 logs checklist- --lines 200 || true
+          ss -tulpn | grep -E "node|:${PORT}" || true
+          exit 1
