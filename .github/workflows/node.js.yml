@@ -1,8 +1,8 @@
-name: Checklist-Maintenance-Housekeeping CI/CD
+name: Checklist Backend CI/CD
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   workflow_dispatch:
 
 concurrency:
@@ -12,113 +12,80 @@ concurrency:
 jobs:
   deploy:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 10
+    timeout-minutes: 6
 
     steps:
-      # 0) Backup .env BEFORE checkout (so it never gets deleted)
-      - name: Backup .env (before checkout)
-        shell: bash
-        run: |
-          set -e
-          APP_DIR="$GITHUB_WORKSPACE"
-          ENV_BACKUP="/home/ubuntu/.env_backup_checklist_backend"
-
-          if [ -f "$APP_DIR/.env" ]; then
-            cp -f "$APP_DIR/.env" "$ENV_BACKUP"
-            chmod 600 "$ENV_BACKUP"
-            echo "✅ .env backed up"
-          else
-            echo "ℹ️ No .env found yet"
-          fi
-
-      - name: Checkout (code update)
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           clean: false
 
-      # 1) Restore .env AFTER checkout
-      - name: Restore .env (after checkout)
-        shell: bash
-        run: |
-          set -e
-          APP_DIR="$GITHUB_WORKSPACE"
-          ENV_BACKUP="/home/ubuntu/.env_backup_checklist_backend"
-
-          if [ -f "$ENV_BACKUP" ]; then
-            cp -f "$ENV_BACKUP" "$APP_DIR/.env"
-            chmod 600 "$APP_DIR/.env"
-            echo "✅ .env restored"
-          fi
-
-          if [ ! -f "$APP_DIR/.env" ]; then
-            echo "❌ .env missing at $APP_DIR/.env"
-            exit 1
-          fi
-
-      - name: Setup Node.js (with npm cache)
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: "package-lock.json"
+          cache: npm
 
-      # 2) Install dependencies (FAST)
-      - name: Install dependencies (fast)
+      # ⚡ Install deps only if needed
+      - name: Install dependencies (smart)
         shell: bash
         run: |
           set -e
           cd "$GITHUB_WORKSPACE"
 
-          npm config set fund false
-          npm config set audit false
-          npm config set progress false
-
-          # ✅ fastest in most cases
-          if [ -f package-lock.json ]; then
-            npm ci --no-audit --no-fund --prefer-offline
+          if [ ! -d node_modules ]; then
+            echo "📦 Installing dependencies"
+            npm ci --no-audit --no-fund
           else
-            npm install --no-audit --no-fund --prefer-offline
+            echo "✅ node_modules exists, skipping install"
           fi
 
-      # 3) Restart PM2
-      - name: Restart PM2 (reload env)
+      # 🚫 Disable device sync during deploy
+      - name: Disable background jobs
         shell: bash
         run: |
           set -e
-          cd "$GITHUB_WORKSPACE"
+          sed -i 's/^DEVICE_SYNC_ENABLED=.*/DEVICE_SYNC_ENABLED=false/' .env || true
+
+      # 🔄 Restart PM2 safely
+      - name: Restart PM2
+        shell: bash
+        run: |
+          set -e
           PM2_NAME="checklist-backend"
 
           if pm2 describe "$PM2_NAME" >/dev/null 2>&1; then
-            pm2 restart "$PM2_NAME" --update-env
+            pm2 reload "$PM2_NAME" --update-env
           else
-            pm2 start server.js --name "$PM2_NAME" --time --update-env
+            pm2 start server.js --name "$PM2_NAME" --time
           fi
 
           pm2 save
-          pm2 status
 
-      # 4) Health check (short + fast)
-      - name: Health check (max 30s)
+      # ⚡ Fast health check (15s max)
+      - name: Health check
         shell: bash
         run: |
           set -e
-          cd "$GITHUB_WORKSPACE"
-
-          PORT=$(grep -E '^PORT=' .env | head -n 1 | cut -d= -f2 | tr -d '\r' || true)
-          [ -z "$PORT" ] && PORT=3000
-
+          PORT=$(grep -E '^PORT=' .env | cut -d= -f2 || echo 3000)
           URL="http://127.0.0.1:${PORT}/health"
-          echo "🔎 Checking: $URL"
 
-          for i in {1..10}; do
-            if curl -fsS "$URL" >/dev/null 2>&1; then
+          for i in {1..5}; do
+            if curl -fsS "$URL" >/dev/null; then
               echo "✅ Health OK"
               exit 0
             fi
             sleep 3
           done
 
-          echo "❌ Health failed. Debug:"
-          pm2 logs checklist-backend --lines 120 || true
-          ss -tulpn | grep -E "node|:${PORT}" || true
+          echo "❌ Health failed"
+          pm2 logs checklist-backend --lines 50 || true
           exit 1
+
+      # ✅ Re-enable background jobs AFTER deploy
+      - name: Re-enable background jobs
+        if: success()
+        shell: bash
+        run: |
+          sed -i 's/^DEVICE_SYNC_ENABLED=.*/DEVICE_SYNC_ENABLED=true/' .env || true
+          pm2 reload checklist-backend --update-env
