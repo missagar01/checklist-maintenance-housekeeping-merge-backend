@@ -67,6 +67,7 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
     ),
   ];
 
+
   if (!normalizedNames.length) return { names: [], checklistUpdated: 0, maintenanceUpdated: 0 };
 
   // 1. Update Checklist (<= targetDate)
