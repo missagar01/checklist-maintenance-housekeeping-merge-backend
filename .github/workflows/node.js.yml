@@ -12,7 +12,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 3
+    timeout-minutes: 8
 
     steps:
       - uses: actions/checkout@v4
@@ -29,18 +29,38 @@ jobs:
           npm ci || npm install
 
       - name: Restart PM2 (DEPLOY MODE)
+        shell: bash
         run: |
+          set -e
           export DEPLOY_MODE=true
-          pm2 restart checklist-backend --update-env || \
-          pm2 start server.js --name checklist-backend --time --update-env
+          pm2 restart checklist-backend --update-env || pm2 start server.js --name checklist-backend --time --update-env
           pm2 save
+          pm2 status
 
       - name: Health check
+        shell: bash
         run: |
-          PORT=$(grep -E '^PORT=' .env | cut -d= -f2 || echo 5050)
-          for i in {1..15}; do
-            curl -fs http://localhost:$PORT/health && exit 0
+          set -e
+          PORT=${PORT:-5050}
+          echo "Checking http://localhost:$PORT/health"
+          for i in {1..30}; do
+            if curl -fsS "http://localhost:$PORT/health" >/dev/null; then
+              echo "✅ Health OK"
+              exit 0
+            fi
             sleep 1
           done
-          pm2 logs checklist-backend --lines 50 || true
+
+          echo "❌ Health failed. Showing PM2 info + last logs (non-tailing)"
+          pm2 status || true
+          pm2 show checklist-backend || true
+
+          echo "---- OUT LOG (last 120) ----"
+          tail -n 120 /home/ubuntu/.pm2/logs/checklist-backend-out.log || true
+
+          echo "---- ERROR LOG (last 200) ----"
+          tail -n 200 /home/ubuntu/.pm2/logs/checklist-backend-error.log || true
+
           exit 1
+
+
