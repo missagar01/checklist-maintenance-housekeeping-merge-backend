@@ -1,5 +1,5 @@
 import axios from "axios";
-import { pool } from "../config/db.js";
+import { pool, maintenancePool } from "../config/db.js";
 
 const LATE_OUT_HOUR = 0;    // 12 AM
 const EARLY_OUT_HOUR = 12;  // 12 PM
@@ -32,7 +32,7 @@ const shouldSkipSync = () => {
 };
 
 const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
-  if (!employeeIds?.length) return { names: [], updated: 0 };
+  if (!employeeIds?.length) return { names: [], checklistUpdated: 0, maintenanceUpdated: 0 };
 
   const normalizedEmployeeIds = [
     ...new Set(
@@ -45,7 +45,7 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
     ),
   ];
 
-  if (!normalizedEmployeeIds.length) return { names: [], updated: 0 };
+  if (!normalizedEmployeeIds.length) return { names: [], checklistUpdated: 0, maintenanceUpdated: 0 };
 
   const { rows } = await pool.query(
     `
@@ -67,23 +67,41 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
     ),
   ];
 
-  if (!normalizedNames.length) return { names: [], updated: 0 };
+  if (!normalizedNames.length) return { names: [], checklistUpdated: 0, maintenanceUpdated: 0 };
 
-  const updateResult = await pool.query(
+  // 1. Update Checklist (<= targetDate)
+  const checklistUpdateResult = await pool.query(
     `
       UPDATE checklist
       SET status = 'no'
       WHERE LOWER(name) = ANY($1::text[])
-        AND task_start_date::date < $2::date
+        AND task_start_date::date <= $2::date
         AND submission_date IS NULL
         AND (status IS NULL OR LOWER(status::text) NOT IN ('yes', 'no'))
     `,
     [normalizedNames, targetDate]
   );
 
-  logSync("DEVICE SYNC: NotDone updated =>", updateResult.rowCount, "date <", targetDate);
+  // 2. Update Maintenance Tasks (<= targetDate)
+  const maintenanceUpdateResult = await maintenancePool.query(
+    `
+      UPDATE maintenance_task_assign
+      SET "Task_Status" = 'No'
+      WHERE LOWER("Doer_Name") = ANY($1::text[])
+        AND "Task_Start_Date"::date <= $2::date
+        AND "Actual_Date" IS NULL
+        AND ("Task_Status" IS NULL OR LOWER("Task_Status"::text) NOT IN ('yes', 'no'))
+    `,
+    [normalizedNames, targetDate]
+  );
 
-  return { names: normalizedNames, updated: updateResult.rowCount };
+  logSync("DEVICE SYNC: Updated => Checklist:", checklistUpdateResult.rowCount, "| Maintenance:", maintenanceUpdateResult.rowCount, "| Date <=", targetDate);
+
+  return {
+    names: normalizedNames,
+    checklistUpdated: checklistUpdateResult.rowCount,
+    maintenanceUpdated: maintenanceUpdateResult.rowCount
+  };
 };
 
 const processLogs = async (allLogs, today) => {
@@ -119,7 +137,7 @@ const processLogs = async (allLogs, today) => {
       const hour = dt.getHours();
       const minute = dt.getMinutes();
 
-      // Rule-A: OUT >= 21:00 AND IN today
+      // Rule-A: OUT >= 21:00 AND IN today -> (Current Logic: OUT >= 0)
       if (hour >= LATE_OUT_HOUR) state.hasLateOutToday = true;
 
       // Rule-B: OUT <= 11:00 (Includes 8 AM, 9 AM, 10 AM, etc.)
@@ -133,15 +151,15 @@ const processLogs = async (allLogs, today) => {
   const earlyOutEmployees = [];
 
   for (const [empCode, state] of empToday.entries()) {
-    // Rule-A: OUT >= 21:00 (Removed hasInToday requirement)
+    // Rule-A
     if (state.hasLateOutToday) lateOutEmployees.push(empCode);
 
-    // Rule-B: OUT <= 11:00
+    // Rule-B
     if (state.hasOutIn11Today) earlyOutEmployees.push(empCode);
   }
 
-  logSync("DEVICE SYNC: Rule-A employees =>", lateOutEmployees);
-  logSync("DEVICE SYNC: Rule-B employees =>", earlyOutEmployees);
+  logSync("DEVICE SYNC: 12:00 AM (Late Out) employees =>", lateOutEmployees.length);
+  logSync("DEVICE SYNC: 12:00 PM (Early Out) employees =>", earlyOutEmployees.length);
 
   // Both rules should mark tasks older than yesterday (current_date - 1)
   // ✅ OPTIMIZED: Run both updates in parallel
@@ -150,16 +168,16 @@ const processLogs = async (allLogs, today) => {
     markChecklistTasksNotDone(earlyOutEmployees, yesterday),
   ]);
 
-  logSync("DEVICE SYNC: Rule-A NotDone count =>", lateOutResult.updated, "date <", yesterday);
-  logSync("DEVICE SYNC: Rule-B NotDone count =>", earlyOutResult.updated, "date <", yesterday);
+  logSync("DEVICE SYNC: Rule-A (12:00 AM) Checklist NotDone =>", lateOutResult.checklistUpdated, "Maintenance NotDone =>", lateOutResult.maintenanceUpdated);
+  logSync("DEVICE SYNC: Rule-B (12:00 PM) Checklist NotDone =>", earlyOutResult.checklistUpdated, "Maintenance NotDone =>", earlyOutResult.maintenanceUpdated);
 
   return {
     today,
     yesterday,
     lateOutEmployeeCodes: lateOutEmployees,
     earlyOutEmployeeCodes: earlyOutEmployees,
-    lateOutUpdated: lateOutResult.updated,
-    earlyOutUpdated: earlyOutResult.updated,
+    lateOutUpdated: lateOutResult.checklistUpdated + lateOutResult.maintenanceUpdated,
+    earlyOutUpdated: earlyOutResult.checklistUpdated + earlyOutResult.maintenanceUpdated,
     lateOutNames: lateOutResult.names,
     earlyOutNames: earlyOutResult.names,
   };
