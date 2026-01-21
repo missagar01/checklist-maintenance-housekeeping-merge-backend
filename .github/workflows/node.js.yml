@@ -12,9 +12,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
 
     steps:
-      # ✅ 0) Backup .env BEFORE checkout (so it never gets deleted)
+      # 0) Backup .env BEFORE checkout (so it never gets deleted)
       - name: Backup .env (before checkout)
         shell: bash
         run: |
@@ -25,17 +26,17 @@ jobs:
           if [ -f "$APP_DIR/.env" ]; then
             cp -f "$APP_DIR/.env" "$ENV_BACKUP"
             chmod 600 "$ENV_BACKUP"
-            echo "✅ .env backed up to $ENV_BACKUP"
+            echo "✅ .env backed up"
           else
-            echo "ℹ️ No .env found in workspace yet (first deploy?)"
+            echo "ℹ️ No .env found yet"
           fi
 
       - name: Checkout (code update)
         uses: actions/checkout@v4
         with:
-          clean: false   # ✅ do NOT auto-clean workspace
+          clean: false
 
-      # ✅ 1) Restore .env AFTER checkout (if backup exists)
+      # 1) Restore .env AFTER checkout
       - name: Restore .env (after checkout)
         shell: bash
         run: |
@@ -46,82 +47,78 @@ jobs:
           if [ -f "$ENV_BACKUP" ]; then
             cp -f "$ENV_BACKUP" "$APP_DIR/.env"
             chmod 600 "$APP_DIR/.env"
-            echo "✅ .env restored into workspace"
+            echo "✅ .env restored"
           fi
 
           if [ ! -f "$APP_DIR/.env" ]; then
-            echo "❌ .env not found in workspace."
-            echo "➡️ Create .env once at: $APP_DIR/.env"
+            echo "❌ .env missing at $APP_DIR/.env"
             exit 1
           fi
 
-      - name: Setup Node.js
+      - name: Setup Node.js (with npm cache)
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "package-lock.json"
 
-      - name: Install dependencies
+      # 2) Install dependencies (FAST)
+      - name: Install dependencies (fast)
         shell: bash
         run: |
           set -e
           cd "$GITHUB_WORKSPACE"
+
+          npm config set fund false
+          npm config set audit false
+          npm config set progress false
+
+          # ✅ fastest in most cases
           if [ -f package-lock.json ]; then
-            npm ci || (echo "⚠️ npm ci failed, fallback to npm install" && npm install)
+            npm ci --no-audit --no-fund --prefer-offline
           else
-            npm install
+            npm install --no-audit --no-fund --prefer-offline
           fi
 
-      - name: Build (if present)
-        shell: bash
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          npm run build --if-present
-
-      - name: Start/Restart PM2 (reload env)
+      # 3) Restart PM2
+      - name: Restart PM2 (reload env)
         shell: bash
         run: |
           set -e
           cd "$GITHUB_WORKSPACE"
           PM2_NAME="checklist-backend"
 
-          pm2 --version
-
           if pm2 describe "$PM2_NAME" >/dev/null 2>&1; then
-            echo "♻️ Restarting PM2: $PM2_NAME"
             pm2 restart "$PM2_NAME" --update-env
           else
-            echo "🚀 Starting PM2: $PM2_NAME"
             pm2 start server.js --name "$PM2_NAME" --time --update-env
           fi
 
           pm2 save
           pm2 status
 
-      - name: Health check (wait up to 45s)
+      # 4) Health check (short + fast)
+      - name: Health check (max 30s)
         shell: bash
         run: |
           set -e
           cd "$GITHUB_WORKSPACE"
 
           PORT=$(grep -E '^PORT=' .env | head -n 1 | cut -d= -f2 | tr -d '\r' || true)
-          if [ -z "$PORT" ]; then PORT=3000; fi
+          [ -z "$PORT" ] && PORT=3000
 
-          HEALTH_PATH="/health"
-          URL="http://127.0.0.1:${PORT}${HEALTH_PATH}"
+          URL="http://127.0.0.1:${PORT}/health"
           echo "🔎 Checking: $URL"
 
-          for i in {1..15}; do
+          for i in {1..10}; do
             if curl -fsS "$URL" >/dev/null 2>&1; then
               echo "✅ Health OK"
               exit 0
             fi
-            echo "⏳ Not ready (${i}/15)"
             sleep 3
           done
 
-
           echo "❌ Health failed. Debug:"
-          pm2 status || true
-          pm2 logs checklist-backend --lines 200 || true
+          pm2 logs checklist-backend --lines 120 || true
           ss -tulpn | grep -E "node|:${PORT}" || true
           exit 1
