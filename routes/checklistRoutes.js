@@ -20,7 +20,7 @@ router.post("/update", updateChecklist);
 router.post("/user-status", submitChecklistRemarkAndUserStatus);
 router.patch("/admin-status", patchChecklistStatus);
 router.post("/admin-done", adminDoneChecklist);
-router.put("/admin-role", updateHrManagerChecklist);
+router.patch("/admin-role", updateHrManagerChecklist);
 router.get("/hr-manager", getChecklistForHrApproval);
 router.get("/departments", getChecklistDepartments);
 router.get("/doers", getChecklistDoers);

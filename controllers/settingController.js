@@ -574,3 +574,38 @@ export const patchSystemAccess = async (req, res) => {
     res.status(500).json({ error: "Database error" });
   }
 };
+
+
+/*******************************
+ * PATCH VERIFY ACCESS (SIMPLE)
+ *******************************/
+export const patchVerifyAccess = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { verify_access } = req.body;
+
+    if (verify_access === undefined) {
+      return res.status(400).json({ error: "verify_access is required" });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE users
+      SET verify_access = $1
+      WHERE id = $2
+      RETURNING id, verify_access
+      `,
+      [verify_access, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error("❌ Error patching verify_access:", error);
+    res.status(500).json({ error: "Database error" });
+  }
+};

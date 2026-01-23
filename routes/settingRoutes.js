@@ -12,7 +12,8 @@ import {
   createDepartment,
   updateDepartment,
   deleteDepartment,
-  patchSystemAccess
+  patchSystemAccess,
+  patchVerifyAccess
 } from "../controllers/settingController.js";
 
 const router = express.Router();
@@ -32,5 +33,6 @@ router.post("/departments", createDepartment);
 router.put("/departments/:id", updateDepartment);
 router.delete("/departments/:id", deleteDepartment);
 router.patch("/users/:id/system_access", patchSystemAccess);
+router.patch("/users/:id/verify-access", patchVerifyAccess);
 
 export default router;

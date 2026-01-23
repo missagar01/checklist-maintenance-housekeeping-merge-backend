@@ -187,7 +187,6 @@ export const submitChecklistRemarkAndUserStatus = async (req, res) => {
         const taskId = item.taskId ?? item.task_id ?? item.task_id_fk;
         if (!taskId) return null;
 
-        // ✅ remark support
         const remark =
           Object.prototype.hasOwnProperty.call(item, "remark")
             ? item.remark
@@ -195,17 +194,12 @@ export const submitChecklistRemarkAndUserStatus = async (req, res) => {
               ? item.remarks
               : undefined;
 
-        // ✅ user status support (handle multiple key names + typo)
-        const userStatusChecklist =
-          Object.prototype.hasOwnProperty.call(item, "user_status_checklist")
-            ? item.user_status_checklist
-            : Object.prototype.hasOwnProperty.call(item, "userStatusChecklist")
-              ? item.userStatusChecklist
-              : Object.prototype.hasOwnProperty.call(item, "user_staus_checklist") // typo support
-                ? item.user_staus_checklist
-                : undefined;
+        const status =
+          Object.prototype.hasOwnProperty.call(item, "status")
+            ? item.status
+            : undefined;
 
-        return { taskId, remark, userStatusChecklist };
+        return { taskId, remark, status };
       })
       .filter(Boolean);
 
@@ -216,60 +210,52 @@ export const submitChecklistRemarkAndUserStatus = async (req, res) => {
     const actionableItems = normalizedItems.filter(
       (item) =>
         typeof item.remark !== "undefined" ||
-        typeof item.userStatusChecklist !== "undefined"
+        typeof item.status !== "undefined"
     );
 
     if (actionableItems.length === 0) {
       return res.status(400).json({
-        error: "Provide remark or user_status_checklist to update",
+        error: "Provide remark or status to update",
       });
     }
 
     const client = await pool.connect();
 
     try {
-      // ✅ Check if column exists: user_status_checklist
-      const columnRes = await client.query(`
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = CURRENT_SCHEMA()
-          AND table_name = 'checklist'
-          AND column_name = 'user_status_checklist'
-      `);
-      const hasUserStatusColumn = columnRes.rowCount > 0;
-
       await client.query("BEGIN");
 
       for (const item of actionableItems) {
         const setClauses = [];
         const values = [];
-        let paramIndex = 1;
+        let idx = 1;
 
         if (typeof item.remark !== "undefined") {
-          setClauses.push(`remark = $${paramIndex++}`);
+          setClauses.push(`remark = $${idx++}`);
           values.push(item.remark ?? null);
         }
 
-        if (hasUserStatusColumn && typeof item.userStatusChecklist !== "undefined") {
-          setClauses.push(`user_status_checklist = $${paramIndex++}`); // SQL column name is user_status_checklist
-          values.push(item.userStatusChecklist ?? null);
+        if (typeof item.status !== "undefined") {
+          setClauses.push(`status = $${idx++}`);
+          values.push(item.status ?? null);
         }
 
-        if (setClauses.length === 0) continue;
+        // ✅ AUTO TIMESTAMP
+        setClauses.push(`submission_date = NOW()`);
 
         values.push(item.taskId);
 
         const sql = `
           UPDATE checklist
           SET ${setClauses.join(", ")}
-          WHERE task_id = $${paramIndex}
+          WHERE task_id = $${idx}
         `;
 
         await client.query(sql, values);
       }
 
       await client.query("COMMIT");
-      res.json({ message: "Checklist remark and user status saved" });
+
+      res.json({ message: "Checklist submitted successfully" });
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -277,10 +263,11 @@ export const submitChecklistRemarkAndUserStatus = async (req, res) => {
       client.release();
     }
   } catch (err) {
-    console.error("❌ submitChecklistRemarkAndUserStatus Error:", err);
+    console.error("❌ submitChecklist Error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
 
 
 // -----------------------------------------
@@ -351,10 +338,11 @@ export const patchChecklistStatus = async (req, res) => {
 // -----------------------------------------
 export const updateHrManagerChecklist = async (req, res) => {
   try {
-    const items = req.body;
+    const items = Array.isArray(req.body) ? req.body : [];
 
-    if (!Array.isArray(items) || items.length === 0)
+    if (items.length === 0) {
       return res.status(400).json({ error: "Invalid data" });
+    }
 
     const client = await pool.connect();
 
@@ -363,19 +351,18 @@ export const updateHrManagerChecklist = async (req, res) => {
 
       const sql = `
         UPDATE checklist
-        SET admin_done = $1,status = $2,
-            submission_date = NOW()
-        
-        WHERE task_id = $3
+        SET admin_done = 'confirmed'
+        WHERE task_id = $1
       `;
 
       for (const item of items) {
-        const adminStatus = item.admin_done ?? "Confirmed";
-        await client.query(sql, [adminStatus, item.status, item.taskId]);
+        if (!item.taskId) continue;
+        await client.query(sql, [item.taskId]);
       }
 
       await client.query("COMMIT");
-      res.json({ message: "Checklist admin roles updated" });
+
+      res.json({ message: "Admin role confirmed" });
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
@@ -427,30 +414,33 @@ export const getChecklistForHrApproval = async (req, res) => {
       : [];
 
     let where = `
-      user_status_checklist IS NOT NULL
-      AND user_status_checklist IN ('Yes', 'No')
-      AND submission_date IS NULL
+      c.submission_date IS NOT NULL
+      AND c.admin_done IS NULL
+      AND c.task_start_date::date <= CURRENT_DATE
     `;
+
     if (departments.length > 0) {
       const deptArray = departments
         .map(d => `'${d.toLowerCase()}'`)
         .join(",");
 
-      where += ` AND LOWER(department) = ANY(ARRAY[${deptArray}]) `;
+      where += ` AND LOWER(c.department) = ANY(ARRAY[${deptArray}]) `;
     }
 
     const query = `
-      SELECT *,
+      SELECT 
+        c.*,
+        u.verify_access,
         COUNT(*) OVER() AS total_count
-      FROM checklist
+      FROM checklist c
+      LEFT JOIN users u
+        ON u.user_name = c.name
       WHERE ${where}
-      ORDER BY task_start_date ASC
+      ORDER BY c.task_start_date::date ASC
     `;
 
     const { rows } = await pool.query(query);
     const totalCount = rows.length > 0 ? rows[0].total_count : 0;
-
-
 
     res.json({
       success: true,

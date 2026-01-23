@@ -74,7 +74,9 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
   const checklistUpdateResult = await pool.query(
     `
       UPDATE checklist
-      SET status = 'no'
+      SET status = 'no',
+      user_status_checklist = 'No',
+      submission_date = NOW()
       WHERE LOWER(name) = ANY($1::text[])
         AND task_start_date::date <= $2::date
         AND submission_date IS NULL
@@ -87,7 +89,8 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
   const maintenanceUpdateResult = await maintenancePool.query(
     `
       UPDATE maintenance_task_assign
-      SET "Task_Status" = 'No'
+      SET "Task_Status" = 'No',
+      "Actual_Date" = NOW()
       WHERE LOWER("Doer_Name") = ANY($1::text[])
         AND "Task_Start_Date"::date <= $2::date
         AND "Actual_Date" IS NULL
