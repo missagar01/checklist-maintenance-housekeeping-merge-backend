@@ -609,3 +609,61 @@ export const patchVerifyAccess = async (req, res) => {
     res.status(500).json({ error: "Database error" });
   }
 };
+
+
+export const patchVerifyAccessDept = async (req, res) => {
+  try {
+    const { id } = req.params;
+    let { verify_access_dept } = req.body;
+
+    // ✅ If nothing is sent, just return current user (no error)
+    if (!verify_access_dept) {
+      const existingUser = await pool.query(
+        "SELECT * FROM users WHERE id = $1",
+        [id]
+      );
+      return res.json(existingUser.rows[0]);
+    }
+
+    verify_access_dept = verify_access_dept.trim().toUpperCase();
+
+    const existing = await pool.query(
+      "SELECT verify_access_dept FROM users WHERE id = $1",
+      [id]
+    );
+
+    let current = [];
+
+    if (existing.rows[0]?.verify_access_dept) {
+      current = existing.rows[0].verify_access_dept
+        .split(",")
+        .map(v => v.trim().toUpperCase())
+        .filter(Boolean);
+    }
+
+    // 🔁 Toggle logic (UNCHANGED)
+    if (current.includes(verify_access_dept)) {
+      current = current.filter(v => v !== verify_access_dept);
+    } else {
+      current.push(verify_access_dept);
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE users
+      SET verify_access_dept = $1
+      WHERE id = $2
+      RETURNING *
+      `,
+      [current.length ? current.join(",") : null, id]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error("Error patching verify_access_dept:", error);
+    res.status(500).json({ error: "Database error" });
+  }
+};
+
+

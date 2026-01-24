@@ -407,10 +407,11 @@ export const adminDoneChecklist = async (req, res) => {
 // -----------------------------------------
 // 3️⃣ GET CHECKLIST FOR HR APPROVAL
 // -----------------------------------------
+
 export const getChecklistForHrApproval = async (req, res) => {
   try {
     const departments = req.query.departments
-      ? req.query.departments.split(',').map(d => d.trim()).filter(Boolean)
+      ? req.query.departments.split(",").map(d => d.trim()).filter(Boolean)
       : [];
 
     let where = `
@@ -419,6 +420,7 @@ export const getChecklistForHrApproval = async (req, res) => {
       AND c.task_start_date::date <= CURRENT_DATE
     `;
 
+    // ✅ Department filter (OWN + verify_access_dept already merged in frontend)
     if (departments.length > 0) {
       const deptArray = departments
         .map(d => `'${d.toLowerCase()}'`)
@@ -453,6 +455,7 @@ export const getChecklistForHrApproval = async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
+
 
 // -----------------------------------------
 // 6️⃣ GET UNIQUE DEPARTMENTS
