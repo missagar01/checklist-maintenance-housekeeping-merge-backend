@@ -18,6 +18,12 @@ const getAdjacentDate = (dateStr, offsetDays) => {
   return formatDateString(base);
 };
 
+const getTodayNoon = () => {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0); // 12:00 PM today
+  return d;
+};
+
 
 /** ✅ Throttle / single-flight (important for auto + API both) */
 let lastSyncAt = 0;
@@ -33,6 +39,8 @@ const shouldSkipSync = () => {
 
 const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
   if (!employeeIds?.length) return { names: [], checklistUpdated: 0, maintenanceUpdated: 0 };
+
+  const submissionAt = getTodayNoon(); // 🔥 NEW
 
   const normalizedEmployeeIds = [
     ...new Set(
@@ -74,30 +82,33 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
   const checklistUpdateResult = await pool.query(
     `
       UPDATE checklist
-      SET status = 'no',
-      user_status_checklist = 'No',
-      submission_date = NOW()
+      SET
+        status = 'no',
+        user_status_checklist = 'No',
+        submission_date = $3
       WHERE LOWER(name) = ANY($1::text[])
-        AND task_start_date::date <= $2::date
+        AND task_start_date::date = $2::date     -- 🔥 ONLY yesterday
         AND submission_date IS NULL
         AND (status IS NULL OR LOWER(status::text) NOT IN ('yes', 'no'))
     `,
-    [normalizedNames, targetDate]
+    [normalizedNames, targetDate, submissionAt]
   );
 
   // 2. Update Maintenance Tasks (<= targetDate)
   const maintenanceUpdateResult = await maintenancePool.query(
     `
       UPDATE maintenance_task_assign
-      SET "Task_Status" = 'No',
-      "Actual_Date" = NOW()
+      SET
+        "Task_Status" = 'No',
+        "Actual_Date" = $3
       WHERE LOWER("Doer_Name") = ANY($1::text[])
-        AND "Task_Start_Date"::date <= $2::date
+        AND "Task_Start_Date"::date = $2::date   -- 🔥 ONLY yesterday
         AND "Actual_Date" IS NULL
         AND ("Task_Status" IS NULL OR LOWER("Task_Status"::text) NOT IN ('yes', 'no'))
     `,
-    [normalizedNames, targetDate]
+    [normalizedNames, targetDate, submissionAt]
   );
+
 
   logSync("DEVICE SYNC: Updated => Checklist:", checklistUpdateResult.rowCount, "| Maintenance:", maintenanceUpdateResult.rowCount, "| Date <=", targetDate);
 
@@ -107,6 +118,38 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
     maintenanceUpdated: maintenanceUpdateResult.rowCount
   };
 };
+
+const markAllYesterdayTasksNotDone = async (targetDate) => {
+  const submissionAt = getTodayNoon();
+
+  await pool.query(
+    `
+      UPDATE checklist
+      SET
+        status = 'no',
+        user_status_checklist = 'No',
+        submission_date = $2
+      WHERE task_start_date::date = $1::date
+        AND submission_date IS NULL
+        AND (status IS NULL OR LOWER(status::text) NOT IN ('yes','no'))
+    `,
+    [targetDate, submissionAt]
+  );
+
+  await maintenancePool.query(
+    `
+      UPDATE maintenance_task_assign
+      SET
+        "Task_Status" = 'No',
+        "Actual_Date" = $2
+      WHERE "Task_Start_Date"::date = $1::date
+        AND "Actual_Date" IS NULL
+        AND ("Task_Status" IS NULL OR LOWER("Task_Status"::text) NOT IN ('yes','no'))
+    `,
+    [targetDate, submissionAt]
+  );
+};
+
 
 const processLogs = async (allLogs, today) => {
   const yesterday = getAdjacentDate(today, -1);
@@ -166,10 +209,10 @@ const processLogs = async (allLogs, today) => {
   logSync("DEVICE SYNC: 12:00 PM (Early Out) employees =>", earlyOutEmployees.length);
 
   // Both rules should mark tasks older than yesterday (current_date - 1)
-  // ✅ OPTIMIZED: Run both updates in parallel
   const [lateOutResult, earlyOutResult] = await Promise.all([
     markChecklistTasksNotDone(lateOutEmployees, yesterday),
     markChecklistTasksNotDone(earlyOutEmployees, yesterday),
+    markAllYesterdayTasksNotDone(yesterday),
   ]);
 
   logSync("DEVICE SYNC: Rule-A (12:00 AM) Checklist NotDone =>", lateOutResult.checklistUpdated, "Maintenance NotDone =>", lateOutResult.maintenanceUpdated);

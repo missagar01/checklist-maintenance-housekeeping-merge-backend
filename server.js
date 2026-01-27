@@ -112,20 +112,32 @@ const DEVICE_SYNC_ENABLED =
 let isSyncRunning = false;
 
 if (DEVICE_SYNC_ENABLED) {
-  const runDeviceSync = async () => {
-    if (isSyncRunning) return;
-    isSyncRunning = true;
+ const runDeviceSync = async () => {
+  // ✅ Force IST time
+  const now = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  );
 
-    try {
-      console.log("🔄 Device sync started");
-      await refreshDeviceSync();
-      console.log("✅ Device sync completed");
-    } catch (err) {
-      console.error("❌ DEVICE SYNC ERROR:", err);
-    } finally {
-      isSyncRunning = false;
-    }
-  };
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+
+  // 🔒 Run ONLY between 12:00–12:04 PM
+  if (!(hour === 12 && minute < 8)) return;
+
+  if (isSyncRunning) return;
+  isSyncRunning = true;
+
+  try {
+    console.log("⏱ 12 PM Device Sync triggered");
+    await refreshDeviceSync();
+    console.log("✅ 12 PM Device Sync completed");
+  } catch (err) {
+    console.error("❌ DEVICE SYNC ERROR:", err);
+  } finally {
+    isSyncRunning = false;
+  }
+};
+
 
   // ❗ Deploy mode me ye block execute hi nahi hota
   runDeviceSync();

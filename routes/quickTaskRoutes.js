@@ -10,25 +10,40 @@ import {
 
 const router = express.Router();
 
-router.post("/checklist", async (req, res) => {
+router.get("/checklist", async (req, res) => {
+  const {
+    page = 0,
+    pageSize = 50,
+    nameFilter = ""
+  } = req.query;
+
   const result = await fetchChecklist(
-    req.body.page,
-    req.body.pageSize,
-    req.body.nameFilter,
-    req.body.startDate,
-    req.body.endDate
+    Number(page),
+    Number(pageSize),
+    nameFilter
   );
+
   res.json(result);
 });
 
-router.post("/delegation", async (req, res) => {
+/**
+ * GET DELEGATION (UNIQUE TASKS)
+ * Example:
+ * /delegation?page=0&pageSize=50&nameFilter=John
+ */
+router.get("/delegation", async (req, res) => {
+  const {
+    page = 0,
+    pageSize = 50,
+    nameFilter = ""
+  } = req.query;
+
   const result = await fetchDelegation(
-    req.body.page,
-    req.body.pageSize,
-    req.body.nameFilter,
-    req.body.startDate,
-    req.body.endDate
+    Number(page),
+    Number(pageSize),
+    nameFilter
   );
+
   res.json(result);
 });
 
