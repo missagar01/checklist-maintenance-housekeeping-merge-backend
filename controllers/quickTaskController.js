@@ -1,10 +1,13 @@
 import { pool } from "../config/db.js";
 
-// ------------------------ FETCH CHECKLIST ------------------------
+
+
 export const fetchChecklist = async (
   page = 0,
   pageSize = 50,
-  nameFilter = ""
+  nameFilter = "",
+  startDate,
+  endDate
 ) => {
   try {
     const offset = page * pageSize;
@@ -12,19 +15,28 @@ export const fetchChecklist = async (
     const params = [];
     let paramIndex = 1;
 
-    // CASE-SENSITIVE name match
+    const hasDateRange = startDate && endDate;
+    if (hasDateRange) {
+      filters.push(`task_start_date >= $${paramIndex++}`);
+      params.push(`${startDate} 00:00:00`);
+      filters.push(`task_start_date <= $${paramIndex++}`);
+      params.push(`${endDate} 23:59:59`);
+    } else {
+      filters.push("task_start_date::date = CURRENT_DATE");
+    }
+
     if (nameFilter) {
-      filters.push(`name = $${paramIndex++}`);
+      filters.push(`LOWER(name) = LOWER($${paramIndex++})`);
       params.push(nameFilter);
     }
 
     const whereClause = filters.join(" AND ");
 
     const dataQuery = `
-      SELECT DISTINCT ON (name, task_description, department) *
+      SELECT *
       FROM checklist
       WHERE ${whereClause}
-      ORDER BY name, task_description, department, task_start_date DESC
+      ORDER BY task_start_date ASC
       LIMIT $${paramIndex++}
       OFFSET $${paramIndex}
     `;
@@ -32,11 +44,9 @@ export const fetchChecklist = async (
     const dataParams = [...params, pageSize, offset];
 
     const countQuery = `
-      SELECT COUNT(*) FROM (
-        SELECT DISTINCT ON (name, task_description, department) 1
-        FROM checklist
-        WHERE ${whereClause}
-      ) sub
+      SELECT COUNT(*) AS count
+      FROM checklist
+      WHERE ${whereClause}
     `;
 
     const [dataRes, countRes] = await Promise.all([
@@ -44,20 +54,21 @@ export const fetchChecklist = async (
       pool.query(countQuery, params),
     ]);
 
-    return {
-      data: dataRes.rows,
-      total: parseInt(countRes.rows[0].count, 10),
-    };
+    const total = parseInt(countRes.rows[0]?.count ?? 0, 10);
+    return { data: dataRes.rows, total };
   } catch (err) {
-    console.error(err);
+    console.log(err);
     return { data: [], total: 0 };
   }
 };
 
+
 export const fetchDelegation = async (
   page = 0,
   pageSize = 50,
-  nameFilter = ""
+  nameFilter = "",
+  startDate,
+  endDate
 ) => {
   try {
     const offset = page * pageSize;
@@ -65,19 +76,29 @@ export const fetchDelegation = async (
     const params = [];
     let paramIndex = 1;
 
-    // CASE-SENSITIVE name match
+    const hasDateRange = startDate && endDate;
+    if (hasDateRange) {
+      filters.push(`task_start_date >= $${paramIndex++}`);
+      params.push(`${startDate} 00:00:00`);
+      filters.push(`task_start_date <= $${paramIndex++}`);
+      params.push(`${endDate} 23:59:59`);
+    } else {
+      // Default to today's tasks when no explicit range is provided
+      filters.push("task_start_date::date = CURRENT_DATE");
+    }
+
     if (nameFilter) {
-      filters.push(`name = $${paramIndex++}`);
+      filters.push(`LOWER(name) = LOWER($${paramIndex++})`);
       params.push(nameFilter);
     }
 
     const whereClause = filters.join(" AND ");
 
     const dataQuery = `
-      SELECT DISTINCT ON (name, task_description, department) *
+      SELECT *
       FROM delegation
       WHERE ${whereClause}
-      ORDER BY name, task_description, department, task_start_date DESC
+      ORDER BY task_start_date ASC
       LIMIT $${paramIndex++}
       OFFSET $${paramIndex}
     `;
@@ -85,11 +106,9 @@ export const fetchDelegation = async (
     const dataParams = [...params, pageSize, offset];
 
     const countQuery = `
-      SELECT COUNT(*) FROM (
-        SELECT DISTINCT ON (name, task_description, department) 1
-        FROM delegation
-        WHERE ${whereClause}
-      ) sub
+      SELECT COUNT(*) AS count
+      FROM delegation
+      WHERE ${whereClause}
     `;
 
     const [dataRes, countRes] = await Promise.all([
@@ -97,12 +116,10 @@ export const fetchDelegation = async (
       pool.query(countQuery, params),
     ]);
 
-    return {
-      data: dataRes.rows,
-      total: parseInt(countRes.rows[0].count, 10),
-    };
+    const total = parseInt(countRes.rows[0]?.count ?? 0, 10);
+    return { data: dataRes.rows, total };
   } catch (err) {
-    console.error(err);
+    console.log(err);
     return { data: [], total: 0 };
   }
 };
@@ -224,7 +241,7 @@ export const updateChecklistTask = async (updatedTask, originalTask) => {
     `;
 
     const res = await pool.query(sql, values);
-    
+
     if (res.rows.length === 0) {
       throw new Error(`Task with task_id ${updatedTask.task_id} not found`);
     }
