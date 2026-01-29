@@ -2,26 +2,11 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 
-/* =======================
-   LOAD ENV
-======================= */
+
 dotenv.config();
-
-/* =======================
-   APP INIT
-======================= */
 const app = express();
-
-/* =======================
-   DEPLOY MODE
-   true  -> deploy time (no background jobs)
-   false -> normal runtime
-======================= */
 const DEPLOY_MODE = process.env.DEPLOY_MODE === "true";
 
-/* =======================
-   MIDDLEWARE
-======================= */
 app.use(cors());
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
@@ -39,6 +24,7 @@ import quickTaskRoutes from "./routes/quickTaskRoutes.js";
 import loginRoutes from "./routes/loginRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
+import userScore from "./routes/userScoreRoutes.js";
 
 import maintenanceRoutes from "./routes/maintenanceRoutes.js";
 import maintenanceTaskRoutes from "./routes/maintenance-routes/maintenanceTaskRoutes.js";
@@ -69,6 +55,7 @@ app.use("/api/staff-tasks", staffTasksRoutes);
 app.use("/api/tasks", quickTaskRoutes);
 app.use("/api/login", loginRoutes);
 app.use("/api/logs", deviceRoutes);
+app.use("/api/user-score", userScore);
 
 app.use("/api/maintenance", maintenanceRoutes);
 app.use("/api/maintenance-tasks", maintenanceTaskRoutes);
