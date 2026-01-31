@@ -531,9 +531,6 @@ export const getCompletedTask = async (req, res) => {
   }
 };
 
-
-
-
 export const getPendingTask = async (req, res) => {
   try {
     const { dashboardType, staffFilter, departmentFilter, role, username } = req.query;

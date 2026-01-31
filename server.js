@@ -25,6 +25,7 @@ import loginRoutes from "./routes/loginRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import userScore from "./routes/userScoreRoutes.js";
+import addNewTaskRoutes from "./routes/AddNewTask.routes.js";
 
 import maintenanceRoutes from "./routes/maintenanceRoutes.js";
 import maintenanceTaskRoutes from "./routes/maintenance-routes/maintenanceTaskRoutes.js";
@@ -56,6 +57,7 @@ app.use("/api/tasks", quickTaskRoutes);
 app.use("/api/login", loginRoutes);
 app.use("/api/logs", deviceRoutes);
 app.use("/api/user-score", userScore);
+app.use("/api/add-new-task" , addNewTaskRoutes);
 
 app.use("/api/maintenance", maintenanceRoutes);
 app.use("/api/maintenance-tasks", maintenanceTaskRoutes);
