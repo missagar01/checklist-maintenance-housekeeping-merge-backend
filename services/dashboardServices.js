@@ -342,13 +342,28 @@ export const countOverDueORExtendedTaskService = async ({
   username = null,
 }) => {
   try {
-    const { start: todayStart } = getToday();
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const startOfMonth = new Date(y, m, 1);
+    const startOfNextMonth = new Date(y, m + 1, 1);
+
+    const fmt = (d) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
     const table =
       dashboardType === "delegation" ? "delegation" : "checklist";
 
-    let conditions = [`task_start_date < $1`];
-    let params = [todayStart];
-    let i = 2;
+    // Corrected: Overdue (Before Today) AND Within Current Month (>= Start of Month)
+    let conditions = [`task_start_date >= $1 AND task_start_date < $2`];
+    // $2 becomes today's start, so tasks on today are not overdue
+    const { start: todayStart } = getToday();
+    let params = [dayStart(fmt(startOfMonth)), todayStart];
+    let i = 3;
 
     if (dashboardType === "delegation") {
       conditions.push(`submission_date IS NULL`);

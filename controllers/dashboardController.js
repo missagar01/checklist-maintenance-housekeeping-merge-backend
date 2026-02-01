@@ -88,6 +88,11 @@ const buildTaskViewClause = ({
   } else if (view === "overdue") {
     conditions.push(`${dateColumn}::date < CURRENT_DATE`);
     conditions.push(`${submissionColumn} IS NULL`);
+    // Combine with 'current month' (on or after 1st)
+    if (firstDayStr) {
+      conditions.push(`${dateColumn} >= $${idx++}`);
+      params.push(`${firstDayStr} 00:00:00`);
+    }
   } else if (view === "ignore_date") {
     // No date filter - allows custom conditions to work without conflicts
   } else {
@@ -750,11 +755,14 @@ export const getOverdueTask = async (req, res) => {
     }
 
     // Align with task list overdue view: before today and not submitted
+    // AND within current month
+    const { firstDayStr } = getCurrentMonthRange();
     let query = `
       SELECT COUNT(*) AS count
       FROM ${table}
       WHERE task_start_date::date < CURRENT_DATE
       AND submission_date IS NULL
+      AND task_start_date >= '${firstDayStr} 00:00:00'
     `;
 
     // Role filter
@@ -782,8 +790,6 @@ export const getOverdueTask = async (req, res) => {
     res.status(500).json({ error: "Error fetching overdue tasks" });
   }
 };
-
-
 
 export const getUniqueDepartments = async (req, res) => {
   try {
@@ -1185,6 +1191,20 @@ export const getNotDoneTask = async (req, res) => {
     const { dashboardType, staffFilter, departmentFilter, role, username } = req.query;
     const debug = req.query.debug === "true";
 
+    // Current Month Filter Logic
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const startOfMonth = new Date(y, m, 1);
+    const startOfNextMonth = new Date(y, m + 1, 1);
+
+    const fmt = (d) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
     if (dashboardType === "checklist") {
       try {
         await refreshDeviceSync();
@@ -1207,6 +1227,14 @@ export const getNotDoneTask = async (req, res) => {
           } else {
             conditions.push(`LOWER(status::text) = 'no'`);
           }
+
+          // Limit to current month
+          const pIdx = params.length + 1;
+          conditions.push(`${source.dateColumn} >= $${pIdx}`);
+          conditions.push(`${source.dateColumn} < $${pIdx + 1}`);
+          params.push(`${fmt(startOfMonth)} 00:00:00`);
+          params.push(`${fmt(startOfNextMonth)} 00:00:00`);
+
           return { conditions, params };
         }
       );
@@ -1224,7 +1252,11 @@ export const getNotDoneTask = async (req, res) => {
          SELECT COUNT(*) AS count
          FROM maintenance_task_assign
          WHERE LOWER("Task_Status") = 'no'
+         AND "Task_Start_Date" >= $${idx++}
+         AND "Task_Start_Date" < $${idx++}
        `;
+      params.push(`${fmt(startOfMonth)} 00:00:00`);
+      params.push(`${fmt(startOfNextMonth)} 00:00:00`);
 
       if (role === "admin" && staffFilter !== "all") {
         query += ` AND "Doer_Name" = $${idx++}`;
