@@ -57,7 +57,7 @@ app.use("/api/tasks", quickTaskRoutes);
 app.use("/api/login", loginRoutes);
 app.use("/api/logs", deviceRoutes);
 app.use("/api/user-score", userScore);
-app.use("/api/add-new-task" , addNewTaskRoutes);
+app.use("/api/add-new-task", addNewTaskRoutes);
 
 app.use("/api/maintenance", maintenanceRoutes);
 app.use("/api/maintenance-tasks", maintenanceTaskRoutes);
@@ -101,31 +101,31 @@ const DEVICE_SYNC_ENABLED =
 let isSyncRunning = false;
 
 if (DEVICE_SYNC_ENABLED) {
- const runDeviceSync = async () => {
-  // ✅ Force IST time
-  const now = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
-  );
+  const runDeviceSync = async () => {
+    // ✅ Force IST time
+    const now = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+    );
 
-  const hour = now.getHours();
-  const minute = now.getMinutes();
+    const hour = now.getHours();
+    const minute = now.getMinutes();
 
-  // 🔒 Run ONLY between 12:00–12:04 PM
-  if (!(hour === 12 && minute < 8)) return;
+    // 🔒 Run ONLY between 12:00–12:04 PM
+    if (!(hour === 12 && minute < 8)) return;
 
-  if (isSyncRunning) return;
-  isSyncRunning = true;
+    if (isSyncRunning) return;
+    isSyncRunning = true;
 
-  try {
-    console.log("⏱ 12 PM Device Sync triggered");
-    await refreshDeviceSync();
-    console.log("✅ 12 PM Device Sync completed");
-  } catch (err) {
-    console.error("❌ DEVICE SYNC ERROR:", err);
-  } finally {
-    isSyncRunning = false;
-  }
-};
+    try {
+      console.log("⏱ 12 PM Device Sync triggered");
+      await refreshDeviceSync();
+      console.log("✅ 12 PM Device Sync completed");
+    } catch (err) {
+      console.error("❌ DEVICE SYNC ERROR:", err);
+    } finally {
+      isSyncRunning = false;
+    }
+  };
 
 
   // ❗ Deploy mode me ye block execute hi nahi hota
