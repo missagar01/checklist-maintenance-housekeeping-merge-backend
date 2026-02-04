@@ -23,9 +23,17 @@ const resolveDateRange = (startDate, endDate) => {
     1
   );
 
+  const startY = firstDayOfMonth.getFullYear();
+  const startM = String(firstDayOfMonth.getMonth() + 1).padStart(2, '0');
+  const startD = String(firstDayOfMonth.getDate()).padStart(2, '0');
+
+  const nextY = firstDayOfNextMonth.getFullYear();
+  const nextM = String(firstDayOfNextMonth.getMonth() + 1).padStart(2, '0');
+  const nextD = String(firstDayOfNextMonth.getDate()).padStart(2, '0');
+
   return {
-    startDate: firstDayOfMonth.toISOString().split("T")[0],
-    endDate: firstDayOfNextMonth.toISOString().split("T")[0],
+    startDate: `${startY}-${startM}-${startD}`,
+    endDate: `${nextY}-${nextM}-${nextD}`,
   };
 };
 

@@ -1155,6 +1155,134 @@ class AssignTaskRepository {
     this.records = this.records.filter((r) => String(r.id) !== String(id));
     return this.records.length < before;
   }
+  async findNotDone(options = {}) {
+    if (useMemory) {
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      nextMonthStart.setHours(0, 0, 0, 0);
+
+      const filtered = this.records.filter((task) => {
+        if (!task || !task.task_start_date) return false;
+        const start = new Date(task.task_start_date);
+        if (Number.isNaN(start.getTime())) return false;
+        start.setHours(0, 0, 0, 0);
+
+        if (start < currentMonthStart || start >= nextMonthStart) return false;
+        if (!task.submission_date) return false;
+        if (String(task.status || '').trim().toLowerCase() !== 'no') return false;
+        if (!matchesDepartment(task.department, options.department)) return false;
+        return true;
+      });
+      const { limit, offset } = options;
+      const startIdx = Number.isInteger(offset) && offset > 0 ? offset : 0;
+      const endIdx = Number.isInteger(limit) && limit > 0 ? startIdx + limit : undefined;
+      return filtered.slice(startIdx, endIdx).map(record => formatTaskDates(applyComputedDelay(record)));
+    }
+
+    const currentMonthStart = getCurrentMonthStart();
+    const nextMonthStart = getNextMonthStart();
+
+    if (!currentMonthStart || !nextMonthStart) {
+      return [];
+    }
+
+    const params = [currentMonthStart, nextMonthStart];
+    let sql = `
+      SELECT *
+      FROM assign_task
+      WHERE LOWER(TRIM(status)) = 'no'
+        AND submission_date IS NOT NULL
+        AND task_start_date::date >= $1::date
+        AND task_start_date::date < $2::date
+    `;
+
+    if (options.department) {
+      if (Array.isArray(options.department) && options.department.length > 0) {
+        const placeholders = options.department.map((_, idx) => {
+          params.push(options.department[idx]);
+          return `LOWER(REGEXP_REPLACE(TRIM($${params.length}), '\\\\s+', ' ', 'g'))`;
+        }).join(', ');
+        sql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) IN (${placeholders})`;
+      } else if (typeof options.department === 'string' && options.department.trim() !== '') {
+        params.push(options.department);
+        sql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) = LOWER(REGEXP_REPLACE(TRIM($${params.length}), '\\\\s+', ' ', 'g'))`;
+      }
+    }
+
+    sql += ' ORDER BY task_start_date ASC';
+
+    const hasLimit = Number.isInteger(options.limit) && options.limit > 0;
+    const hasOffset = Number.isInteger(options.offset) && options.offset > 0;
+
+    if (hasLimit) {
+      params.push(options.limit);
+      sql += ` LIMIT $${params.length}`;
+    }
+    if (hasOffset) {
+      if (!hasLimit) sql += ' LIMIT ALL';
+      params.push(options.offset);
+      sql += ` OFFSET $${params.length}`;
+    }
+
+    const result = await query(sql, params);
+    return result.rows.map(record => formatTaskDates(applyComputedDelay(record)));
+  }
+
+  async countNotDone(options = {}) {
+    if (useMemory) {
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      nextMonthStart.setHours(0, 0, 0, 0);
+      return this.records.filter((task) => {
+        if (!task || !task.task_start_date) return false;
+        const start = new Date(task.task_start_date);
+        if (Number.isNaN(start.getTime())) return false;
+        start.setHours(0, 0, 0, 0);
+        if (start < currentMonthStart || start >= nextMonthStart) return false;
+        if (!task.submission_date) return false;
+        if (String(task.status || '').trim().toLowerCase() !== 'no') return false;
+        if (!matchesDepartment(task.department, options.department)) return false;
+        return true;
+      }).length;
+    }
+
+    const currentMonthStart = getCurrentMonthStart();
+    const nextMonthStart = getNextMonthStart();
+
+    if (!currentMonthStart || !nextMonthStart) {
+      return 0;
+    }
+
+    const params = [currentMonthStart, nextMonthStart];
+    let sql = `
+      SELECT COUNT(*) as count
+      FROM assign_task
+      WHERE LOWER(TRIM(status)) = 'no'
+        AND submission_date IS NOT NULL
+        AND task_start_date::date >= $1::date
+        AND task_start_date::date < $2::date
+    `;
+
+    if (options.department) {
+      if (Array.isArray(options.department) && options.department.length > 0) {
+        const placeholders = options.department.map((_, idx) => {
+          params.push(options.department[idx]);
+          return `LOWER(REGEXP_REPLACE(TRIM($${params.length}), '\\\\s+', ' ', 'g'))`;
+        }).join(', ');
+        sql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) IN (${placeholders})`;
+      } else if (typeof options.department === 'string' && options.department.trim() !== '') {
+        params.push(options.department);
+        sql += ` AND LOWER(REGEXP_REPLACE(TRIM(department), '\\\\s+', ' ', 'g')) = LOWER(REGEXP_REPLACE(TRIM($${params.length}), '\\\\s+', ' ', 'g'))`;
+      }
+    }
+
+    const result = await query(sql, params);
+    return Number(result.rows[0]?.count || 0);
+  }
 }
 
 const assignTaskRepository = new AssignTaskRepository();

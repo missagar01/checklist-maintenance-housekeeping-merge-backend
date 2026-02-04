@@ -173,8 +173,13 @@ class AssignTaskService {
   }
 
   async aggregateStats(cutoffOverride, options = {}) {
-    const cutoff = cutoffOverride || getEndOfYesterday();
-    return assignTaskRepository.aggregateStats(cutoff, options);
+    // This is redirected to the optimized version below
+    return this.aggregateStatsInternal(options);
+  }
+
+  async aggregateStatsInternal(options = {}) {
+    // Optimized version implemented at the bottom
+    return this.aggregateStats(null, options);
   }
 
   async stats(itemsOverride) {
@@ -292,13 +297,18 @@ class AssignTaskService {
     return assignTaskRepository.findOverdue(null, options);
   }
 
-  // Return all tasks explicitly marked as not done (status "no")
   async notDone(options = {}) {
-    const items = await this.list(options);
-    return items.filter((task) => {
-      const status = task && task.status ? String(task.status).trim().toLowerCase() : '';
-      return status === 'no';
-    });
+    return assignTaskRepository.findNotDone(options);
+  }
+
+  async countNotDone(options = {}) {
+    return assignTaskRepository.countNotDone(options);
+  }
+
+  async notDoneWithTotal(options = {}) {
+    const items = await assignTaskRepository.findNotDone(options);
+    const total = await assignTaskRepository.countNotDone(options);
+    return { items, total };
   }
 
   today(options = {}) {
@@ -378,10 +388,35 @@ class AssignTaskService {
     return { items, total };
   }
 
-  async overdueWithTotal(options = {}) {
-    const items = await assignTaskRepository.findOverdue(null, options);
-    const total = await assignTaskRepository.countOverdue(options);
-    return { items, total };
+  async aggregateStats(cutoffOverride, options = {}) {
+    // Run all counts in parallel for performance
+    const [total, completed, pending, upcoming, overdue, notdone] = await Promise.all([
+      // Total tasks in current month TILL TODAY
+      this.list({ ...options, date_range: 'current_month_to_today' }).then(items => items.length),
+      // Completed tasks in current month
+      this.list({ ...options, status: 'yes', date_range: 'current_month' }).then(items => items.length),
+      // Pending tasks for today
+      this.countToday(options),
+      // Upcoming tasks for tomorrow
+      this.countTomorrow(options),
+      // Overdue tasks in current month
+      this.countOverdue(options),
+      // Not Done tasks in current month
+      this.countNotDone(options)
+    ]);
+
+    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    return {
+      total,
+      completed,
+      pending,
+      upcoming,
+      overdue,
+      notdone,
+      not_done: notdone,
+      progress_percent: progress
+    };
   }
 }
 

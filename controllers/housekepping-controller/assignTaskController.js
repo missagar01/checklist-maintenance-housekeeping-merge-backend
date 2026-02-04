@@ -341,11 +341,28 @@ const assignTaskController = {
     }
   },
 
-  async notDone(_req, res, next) {
+  async notDone(req, res, next) {
     try {
-      const department = _req.query?.department;
-      const items = await assignTaskService.notDone({ department });
-      res.json(items);
+      const limit = parsePositiveInt(req.query?.limit, { max: 100, defaultValue: 100 });
+      const offset = parsePositiveInt(req.query?.offset, { defaultValue: 0 });
+      const page = parsePositiveInt(req.query?.page, { defaultValue: 1 });
+      const effectiveOffset = page && limit ? (page - 1) * limit : offset;
+      const department = resolveDepartment(req);
+
+      const { items, total } = await assignTaskService.notDoneWithTotal({
+        limit,
+        offset: effectiveOffset,
+        department
+      });
+      const payload = {
+        items,
+        total,
+        limit,
+        offset: effectiveOffset,
+        page,
+        hasMore: effectiveOffset + items.length < total
+      };
+      res.json(payload);
     } catch (err) {
       next(err);
     }
@@ -429,6 +446,16 @@ const assignTaskController = {
     try {
       const department = resolveDepartment(req);
       const count = await assignTaskService.countOverdue({ department });
+      res.json({ count });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async countNotDone(req, res, next) {
+    try {
+      const department = resolveDepartment(req);
+      const count = await assignTaskService.countNotDone({ department });
       res.json({ count });
     } catch (err) {
       next(err);

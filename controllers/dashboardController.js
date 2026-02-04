@@ -3,18 +3,22 @@ import { query as housekeepingQuery } from "../config/housekeppingdb.js";
 import { refreshDeviceSync } from "../services/deviceSync.js";
 import { getUniqueDepartmentsService } from "../services/dashboardServices.js";
 
-const today = new Date().toISOString().split("T")[0];
+const now = new Date();
+const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 const logQueries = process.env.LOG_QUERIES === "true";
 const log = (...args) => {
   if (logQueries) console.log(...args);
 };
 
-// Helper function to get current month range
 const getCurrentMonthRange = () => {
-  const currentDate = new Date();
-  const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-  const firstDayStr = firstDayOfMonth.toISOString().split('T')[0];
-  const currentDayStr = currentDate.toISOString().split('T')[0];
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
+
+  const firstDayStr = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  const currentDayStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  
   return { firstDayStr, currentDayStr };
 };
 
@@ -57,12 +61,13 @@ const CHECKLIST_SOURCES = [
        "Frequency" AS frequency,
        "Task_Start_Date" AS task_start_date,
        "Actual_Date" AS submission_date,
-       CASE WHEN "Actual_Date" IS NOT NULL THEN 'Yes' ELSE 'No' END AS status`,
+       "Task_Status" AS status`,
     dateColumn: `"Task_Start_Date"`,
     submissionColumn: `"Actual_Date"`,
     nameColumn: `"Doer_Name"`,
     departmentColumn: `COALESCE("doer_department", "machine_department")`,
-    statusColumn: null
+    statusColumn: `"Task_Status"`,
+    statusColumnSafe: false
   }
 ];
 
@@ -70,6 +75,9 @@ const buildTaskViewClause = ({
   taskView = "recent",
   dateColumn,
   submissionColumn,
+  statusColumn,
+  statusColumnSafe,
+  sourceName,
   firstDayStr,
   currentDayStr,
   params,
@@ -92,6 +100,22 @@ const buildTaskViewClause = ({
     if (firstDayStr) {
       conditions.push(`${dateColumn} >= $${idx++}`);
       params.push(`${firstDayStr} 00:00:00`);
+    }
+  } else if (view === "notdone") {
+    // Condition: status 'No' and submission_date IS NOT NULL
+    // User requested "get data of first date of current months, to till date where status have 'no' and submission_date is not null"
+    if (sourceName === "maintenance") {
+      conditions.push(`LOWER("Task_Status") = 'no'`);
+    } else if (statusColumn) {
+      conditions.push(`LOWER(${statusColumn}::text) = 'no'`);
+    }
+    conditions.push(`${submissionColumn} IS NOT NULL`);
+
+    if (firstDayStr && currentDayStr) {
+      conditions.push(`${dateColumn} >= $${idx++}`);
+      params.push(`${firstDayStr} 00:00:00`);
+      conditions.push(`${dateColumn} <= $${idx++}`);
+      params.push(`${currentDayStr} 23:59:59`);
     }
   } else if (view === "ignore_date") {
     // No date filter - allows custom conditions to work without conflicts
@@ -143,6 +167,9 @@ const buildChecklistFilterConditions = (
     taskView,
     dateColumn: source.dateColumn,
     submissionColumn: source.submissionColumn,
+    statusColumn: source.statusColumn,
+    statusColumnSafe: source.statusColumnSafe,
+    sourceName: source.name,
     firstDayStr,
     currentDayStr,
     params,
@@ -1091,6 +1118,15 @@ export const getDashboardDataCount = async (req, res) => {
         query += ` AND submission_date IS NULL`;
       }
     }
+    else if (taskView === "notdone") {
+      const { firstDayStr, currentDayStr } = getCurrentMonthRange();
+      query += `
+        AND LOWER(status::text) = 'no'
+        AND submission_date IS NOT NULL
+        AND task_start_date >= '${firstDayStr} 00:00:00'
+        AND task_start_date <= '${currentDayStr} 23:59:59'
+      `;
+    }
 
     const result = await pool.query(query);
     const count = Number(result.rows[0].count || 0);
@@ -1221,12 +1257,13 @@ export const getNotDoneTask = async (req, res) => {
           taskView: "ignore_date"
         },
         ({ source, conditions, params }) => {
-          // Add Not Done logic
+          // Add Not Done logic: status 'no' AND submission_date IS NOT NULL
           if (source.name === "maintenance") {
             conditions.push(`LOWER("Task_Status") = 'no'`);
           } else {
             conditions.push(`LOWER(status::text) = 'no'`);
           }
+          conditions.push(`${source.submissionColumn} IS NOT NULL`);
 
           // Limit to current month
           const pIdx = params.length + 1;
@@ -1252,6 +1289,7 @@ export const getNotDoneTask = async (req, res) => {
          SELECT COUNT(*) AS count
          FROM maintenance_task_assign
          WHERE LOWER("Task_Status") = 'no'
+         AND "Actual_Date" IS NOT NULL
          AND "Task_Start_Date" >= $${idx++}
          AND "Task_Start_Date" < $${idx++}
        `;
@@ -1305,24 +1343,23 @@ export const getNotDoneTaskList = async (req, res) => {
       limit = 50
     } = req.query;
 
-    // ✅ IST-safe date (YYYY-MM-DD)
-    const targetDate =
-      date ||
-      new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    // ✅ IST-safe current month range
+    const { firstDayStr, currentDayStr } = getCurrentMonthRange();
 
     const normalizedPage = Math.max(parseInt(page, 10) || 1, 1);
     const normalizedLimit = Math.max(parseInt(limit, 10) || 50, 1);
     const offset = (normalizedPage - 1) * normalizedLimit;
 
-    // ✅ Case-safe status check
+    // ✅ Match user criteria: status='no' AND submission_date IS NOT NULL
     const conditions = [
       `LOWER(status::text) = 'no'`,
-      `submission_date IS NULL`,
-      `task_start_date::date = $1::date`
+      `submission_date IS NOT NULL`,
+      `task_start_date >= $1`,
+      `task_start_date <= $2`
     ];
 
-    const params = [targetDate];
-    let idx = 2;
+    const params = [`${firstDayStr} 00:00:00`, `${currentDayStr} 23:59:59` ];
+    let idx = 3;
 
     if (role === "user" && username) {
       conditions.push(`name = $${idx++}`);

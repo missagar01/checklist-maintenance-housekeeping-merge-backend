@@ -113,6 +113,7 @@ router.get('/generate/tomorrow', assignTaskController.tomorrow);
 router.get('/generate/today/count', assignTaskController.countToday);
 router.get('/generate/tomorrow/count', assignTaskController.countTomorrow);
 router.get('/generate/overdue/count', assignTaskController.countOverdue);
+router.get('/generate/not-done/count', assignTaskController.countNotDone);
 
 router.get('/generate/pending', assignTaskController.pending);
 

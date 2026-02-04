@@ -5,30 +5,42 @@ const dayEnd = (d) => `${d} 23:59:59`;
 
 const getToday = () => {
   const today = new Date();
-  const d = today.toISOString().split("T")[0];
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, '0');
+  const d = String(today.getDate()).padStart(2, '0');
+  const dateStr = `${y}-${m}-${d}`;
+
   return {
-    date: d,
-    start: dayStart(d),
-    end: dayEnd(d),
+    date: dateStr,
+    start: dayStart(dateStr),
+    end: dayEnd(dateStr),
   };
 };
 
 const getTomorrow = () => {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const d = tomorrow.toISOString().split("T")[0];
+  const y = tomorrow.getFullYear();
+  const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
+  const d = String(tomorrow.getDate()).padStart(2, '0');
+  const dateStr = `${y}-${m}-${d}`;
+
   return {
-    date: d,
-    start: dayStart(d),
-    end: dayEnd(d),
+    date: dateStr,
+    start: dayStart(dateStr),
+    end: dayEnd(dateStr),
   };
 };
 
 const getCurrentMonthRange = () => {
   const now = new Date();
-  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-  const firstDayStr = firstDay.toISOString().split("T")[0];
-  const currentDayStr = now.toISOString().split("T")[0];
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  
+  const firstDayStr = `${y}-${m}-01`;
+  const currentDayStr = `${y}-${m}-${d}`;
+
   return {
     start: dayStart(firstDayStr),
     end: dayEnd(currentDayStr)
@@ -86,7 +98,11 @@ export const fetchMaintenanceDashboardDataService = async ({
       // Tomorrow's tasks
       const t = new Date();
       t.setDate(t.getDate() + 1);
-      const tStr = t.toISOString().split("T")[0];
+      const y = t.getFullYear();
+      const m = String(t.getMonth() + 1).padStart(2, '0');
+      const d = String(t.getDate()).padStart(2, '0');
+      const tStr = `${y}-${m}-${d}`;
+
       conditions.push(`"Task_Start_Date"::date = $${i}::date`);
       params.push(tStr);
       i++;
@@ -95,6 +111,18 @@ export const fetchMaintenanceDashboardDataService = async ({
       // Past due tasks
       conditions.push(`"Task_Start_Date"::date < CURRENT_DATE`);
       conditions.push(`"Actual_Date" IS NULL`);
+    } else if (taskView === "notdone") {
+      // Condition: status 'No' and Actual_Date IS NOT NULL
+      conditions.push(`LOWER("Task_Status") = 'no'`);
+      conditions.push(`"Actual_Date" IS NOT NULL`);
+
+      const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
+      conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+      params.push(monthStart);
+      i++;
+      conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+      params.push(monthEnd);
+      i++;
     } else {
       // default: all from start of current month up to today
       const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
@@ -328,6 +356,7 @@ export const countNotDoneMaintenanceTaskService = async ({
 
     let conditions = [
       `LOWER("Task_Status") = 'no'`,
+      `"Actual_Date" IS NOT NULL`,
       `"Task_Start_Date" >= $1`,
       `"Task_Start_Date" <= $2`
     ];
@@ -499,6 +528,16 @@ export const countMaintenanceTaskByViewService = async ({
     } else if (taskView === "overdue") {
       conditions.push(`"Task_Start_Date"::date < CURRENT_DATE`);
       conditions.push(`"Actual_Date" IS NULL`);
+    } else if (taskView === "notdone") {
+      conditions.push(`LOWER("Task_Status") = 'no'`);
+      conditions.push(`"Actual_Date" IS NOT NULL`);
+      const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
+      conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+      params.push(monthStart);
+      i++;
+      conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+      params.push(monthEnd);
+      i++;
     } else {
       const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
       conditions.push(`"Task_Start_Date"::date >= $${i}::date`);

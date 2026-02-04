@@ -8,22 +8,30 @@ const dayEnd = (d) => `${d} 23:59:59`;
 
 const getToday = () => {
   const today = new Date();
-  const d = today.toISOString().split("T")[0];
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, '0');
+  const d = String(today.getDate()).padStart(2, '0');
+  const dateStr = `${y}-${m}-${d}`;
+
   return {
-    date: d,
-    start: dayStart(d),
-    end: dayEnd(d),
+    date: dateStr,
+    start: dayStart(dateStr),
+    end: dayEnd(dateStr),
   };
 };
 
 const getTomorrow = () => {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const d = tomorrow.toISOString().split("T")[0];
+  const y = tomorrow.getFullYear();
+  const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
+  const d = String(tomorrow.getDate()).padStart(2, '0');
+  const dateStr = `${y}-${m}-${d}`;
+
   return {
-    date: d,
-    start: dayStart(d),
-    end: dayEnd(d),
+    date: dateStr,
+    start: dayStart(dateStr),
+    end: dayEnd(dateStr),
   };
 };
 
@@ -83,7 +91,10 @@ export const fetchDashboardDataService = async ({
     } else if (taskView === "upcoming") {
       const t = new Date();
       t.setDate(t.getDate() + 1);
-      const tStr = t.toISOString().split("T")[0];
+      const y = t.getFullYear();
+      const m = String(t.getMonth() + 1).padStart(2, '0');
+      const d = String(t.getDate()).padStart(2, '0');
+      const tStr = `${y}-${m}-${d}`;
 
       conditions.push(`task_start_date BETWEEN $${i} AND $${i + 1}`);
       params.push(dayStart(tStr), dayEnd(tStr));
