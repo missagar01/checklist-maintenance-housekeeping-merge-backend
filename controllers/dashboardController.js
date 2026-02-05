@@ -103,20 +103,38 @@ const buildTaskViewClause = ({
     }
   } else if (view === "notdone") {
     // Condition: status 'No' and submission_date IS NOT NULL
-    // User requested "get data of first date of current months, to till date where status have 'no' and submission_date is not null"
+    // Strict Current Month Filter: 1st of Current Month -> 1st of Next Month (Exclusive)
+    
+    // 1. Status Check
     if (sourceName === "maintenance") {
       conditions.push(`LOWER("Task_Status") = 'no'`);
     } else if (statusColumn) {
       conditions.push(`LOWER(${statusColumn}::text) = 'no'`);
     }
+    
+    // 2. Submission Check
     conditions.push(`${submissionColumn} IS NOT NULL`);
 
-    if (firstDayStr && currentDayStr) {
-      conditions.push(`${dateColumn} >= $${idx++}`);
-      params.push(`${firstDayStr} 00:00:00`);
-      conditions.push(`${dateColumn} <= $${idx++}`);
-      params.push(`${currentDayStr} 23:59:59`);
-    }
+    // 3. Date Range Check (Calculated locally to ensure consistency with Count API)
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const startOfMonth = new Date(y, m, 1);
+    const startOfNextMonth = new Date(y, m + 1, 1);
+
+    const fmt = (d) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    conditions.push(`${dateColumn} >= $${idx++}`);
+    params.push(`${fmt(startOfMonth)} 00:00:00`);
+    
+    conditions.push(`${dateColumn} < $${idx++}`);
+    params.push(`${fmt(startOfNextMonth)} 00:00:00`);
+
   } else if (view === "ignore_date") {
     // No date filter - allows custom conditions to work without conflicts
   } else {
