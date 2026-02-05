@@ -433,6 +433,15 @@ export const getDashboardData = async (req, res) => {
         query += ` AND submission_date IS NULL`;
       }
     }
+    else if (taskView === "notdone") {
+      // NOT DONE Tasks
+      query += `
+        AND LOWER(status::text) = 'no'
+        AND submission_date IS NOT NULL
+        AND task_start_date >= '${firstDayStr} 00:00:00'
+        AND task_start_date <= '${currentDayStr} 23:59:59'
+      `;
+    }
     else if (taskView === "all") {
       // ALL TASKS IN CURRENT MONTH
       query += `
