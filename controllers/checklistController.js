@@ -376,6 +376,50 @@ export const updateHrManagerChecklist = async (req, res) => {
 };
 
 // -----------------------------------------
+// 4.1️⃣ HR MANAGER REJECT
+// -----------------------------------------
+export const rejectHrManagerChecklist = async (req, res) => {
+  try {
+    const items = Array.isArray(req.body) ? req.body : [];
+
+    if (items.length === 0) {
+      return res.status(400).json({ error: "Invalid data" });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const sql = `
+        UPDATE checklist
+        SET admin_done = 'no',
+            status = 'no'
+        WHERE task_id = $1
+      `;
+
+      for (const item of items) {
+        if (!item.taskId) continue;
+        await client.query(sql, [item.taskId]);
+      }
+
+      await client.query("COMMIT");
+
+      res.json({ message: "Tasks rejected successfully" });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("❌ rejectHrManagerChecklist Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+// -----------------------------------------
 // 5️⃣ ADMIN DONE UPDATE
 // -----------------------------------------
 export const adminDoneChecklist = async (req, res) => {

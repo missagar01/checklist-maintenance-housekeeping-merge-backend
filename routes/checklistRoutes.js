@@ -5,6 +5,7 @@ import {
   updateChecklist,
   adminDoneChecklist,
   updateHrManagerChecklist,
+  rejectHrManagerChecklist,
   submitChecklistRemarkAndUserStatus,
   patchChecklistStatus,
   getChecklistForHrApproval,
@@ -21,6 +22,7 @@ router.post("/user-status", submitChecklistRemarkAndUserStatus);
 router.patch("/admin-status", patchChecklistStatus);
 router.post("/admin-done", adminDoneChecklist);
 router.patch("/admin-role", updateHrManagerChecklist);
+router.patch("/reject-role", rejectHrManagerChecklist);
 router.get("/hr-manager", getChecklistForHrApproval);
 router.get("/departments", getChecklistDepartments);
 router.get("/doers", getChecklistDoers);
