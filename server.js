@@ -110,16 +110,24 @@ if (DEVICE_SYNC_ENABLED) {
     const hour = now.getHours();
     const minute = now.getMinutes();
 
-    // 🔒 Run ONLY between 12:00–12:04 PM
-    if (!(hour === 12 && minute < 8)) return;
+    // 🔒 Run at 11:00 AM OR 11:00 PM (IST)
+    // Allow 8-minute window (minute < 8)
+    const isMorningRun = hour === 11;
+    const isNightRun = hour === 23;
+
+    if (!((isMorningRun || isNightRun) && minute < 8)) return;
 
     if (isSyncRunning) return;
     isSyncRunning = true;
 
     try {
-      console.log("⏱ 12 PM Device Sync triggered");
-      await refreshDeviceSync();
-      console.log("✅ 12 PM Device Sync completed");
+      const mode = isMorningRun ? "Morning (11 AM)" : "Night (11 PM)";
+      console.log(`⏱ ${mode} Device Sync triggered`);
+      
+      // Pass the hour so logic knows which trigger to run
+      await refreshDeviceSync(undefined, hour);
+      
+      console.log(`✅ ${mode} Device Sync completed`);
     } catch (err) {
       console.error("❌ DEVICE SYNC ERROR:", err);
     } finally {

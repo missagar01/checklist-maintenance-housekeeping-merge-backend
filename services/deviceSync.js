@@ -1,9 +1,6 @@
 import axios from "axios";
 import { pool, maintenancePool } from "../config/db.js";
 
-const LATE_OUT_HOUR = 0;    // 12 AM
-const EARLY_OUT_HOUR = 12;  // 12 PM
-
 const LOG_DEVICE_SYNC = process.env.LOG_DEVICE_SYNC === "true";
 const logSync = (...args) => {
   if (LOG_DEVICE_SYNC) console.log(...args);
@@ -24,14 +21,38 @@ const getAdjacentDate = (dateStr, offsetDays) => {
   return formatDateString(base);
 };
 
-const getTodayNoon = () => {
+// Return a Date object set to today at specific hour (in local/server time)
+const getSubmissionTime = (hour) => {
+  // Check if we need to force IST offset logic if server is UTC.
+  // For now, mirroring server.js logic:
+  // We want to store a TIMESTAMP that represents HH:00 IST.
+  // If the DB expects timestamp without timezone, passing a JS Date usually converts to UTC.
+  // To be safe, we construct a date that *looks* like the target time.
   const d = new Date();
-  d.setHours(12, 0, 0, 0); // 12:00 PM today
+  d.setHours(hour, 0, 0, 0);
   return d;
 };
 
+/**
+ * Fetch all active employee IDs from the database to determine absentees.
+ */
+const getAllActiveEmployeeIds = async () => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT employee_id 
+      FROM users 
+      WHERE employee_id IS NOT NULL 
+        AND TRIM(employee_id) <> ''
+    `);
+    return rows.map(r => String(r.employee_id).trim());
+  } catch (error) {
+    console.error("❌ Error fetching active employees:", error);
+    return [];
+  }
+};
 
-/** ✅ Throttle / single-flight (important for auto + API both) */
+
+/** ✅ Throttle / single-flight */
 let lastSyncAt = 0;
 let inFlight = null;
 const MIN_GAP_MS = Number(process.env.DEVICE_SYNC_MIN_GAP_MS || 55 * 1000);
@@ -43,23 +64,18 @@ const shouldSkipSync = () => {
   return false;
 };
 
-const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
-  if (!employeeIds?.length) return { names: [], checklistUpdated: 0, maintenanceUpdated: 0 };
-
-  const submissionAt = getTodayNoon(); // 🔥 NEW
+const markChecklistTasksNotDone = async (employeeIds, targetDate, submissionTime) => {
+  if (!employeeIds?.length) return { checklistUpdated: 0, maintenanceUpdated: 0 };
 
   const normalizedEmployeeIds = [
     ...new Set(
       employeeIds
-        .map((id) => {
-          if (id === null || id === undefined) return "";
-          return String(id).trim().toLowerCase();
-        })
+        .map((id) => id ? String(id).trim().toLowerCase() : "")
         .filter((v) => v.length > 0)
     ),
   ];
 
-  if (!normalizedEmployeeIds.length) return { names: [], checklistUpdated: 0, maintenanceUpdated: 0 };
+  if (!normalizedEmployeeIds.length) return { checklistUpdated: 0, maintenanceUpdated: 0 };
 
   const { rows } = await pool.query(
     `
@@ -73,18 +89,12 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
   );
 
   const normalizedNames = [
-    ...new Set(
-      rows
-        .map((r) => r.user_name?.trim())
-        .filter(Boolean)
-        .map((n) => n.toLowerCase())
-    ),
+    ...new Set(rows.map((r) => r.user_name?.trim().toLowerCase()).filter(Boolean)),
   ];
 
+  if (!normalizedNames.length) return { checklistUpdated: 0, maintenanceUpdated: 0 };
 
-  if (!normalizedNames.length) return { names: [], checklistUpdated: 0, maintenanceUpdated: 0 };
-
-  // 1. Update Checklist (<= targetDate)
+  // 1. Update Checklist
   const checklistUpdateResult = await pool.query(
     `
       UPDATE checklist
@@ -93,14 +103,14 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
         user_status_checklist = 'No',
         submission_date = $3
       WHERE LOWER(name) = ANY($1::text[])
-        AND task_start_date::date = $2::date     -- 🔥 ONLY yesterday
+        AND task_start_date::date = $2::date
         AND submission_date IS NULL
-        AND (status IS NULL OR LOWER(status::text) NOT IN ('yes', 'no'))
+        AND status IS NULL
     `,
-    [normalizedNames, targetDate, submissionAt]
+    [normalizedNames, targetDate, submissionTime] // targetDate handles < Today logic explicitly
   );
 
-  // 2. Update Maintenance Tasks (<= targetDate)
+  // 2. Update Maintenance Tasks
   const maintenanceUpdateResult = await maintenancePool.query(
     `
       UPDATE maintenance_task_assign
@@ -108,145 +118,153 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate) => {
         "Task_Status" = 'No',
         "Actual_Date" = $3
       WHERE LOWER("Doer_Name") = ANY($1::text[])
-        AND "Task_Start_Date"::date = $2::date   -- 🔥 ONLY yesterday
+        AND "Task_Start_Date"::date = $2::date
         AND "Actual_Date" IS NULL
-        AND ("Task_Status" IS NULL OR LOWER("Task_Status"::text) NOT IN ('yes', 'no'))
+        AND "Task_Status" IS NULL
     `,
-    [normalizedNames, targetDate, submissionAt]
+    [normalizedNames, targetDate, submissionTime]
   );
 
-
-  logSync("DEVICE SYNC: Updated => Checklist:", checklistUpdateResult.rowCount, "| Maintenance:", maintenanceUpdateResult.rowCount, "| Date <=", targetDate);
+  logSync(`DEVICE SYNC: Updated for date ${targetDate} | Checklist: ${checklistUpdateResult.rowCount} | Maintenance: ${maintenanceUpdateResult.rowCount}`);
 
   return {
-    names: normalizedNames,
     checklistUpdated: checklistUpdateResult.rowCount,
     maintenanceUpdated: maintenanceUpdateResult.rowCount
   };
 };
 
-const markAllYesterdayTasksNotDone = async (targetDate) => {
-  const submissionAt = getTodayNoon();
 
-  await pool.query(
-    `
-      UPDATE checklist
-      SET
-        status = 'no',
-        user_status_checklist = 'No',
-        submission_date = $2
-      WHERE task_start_date::date = $1::date
-        AND submission_date IS NULL
-        AND (status IS NULL OR LOWER(status::text) NOT IN ('yes','no'))
-    `,
-    [targetDate, submissionAt]
-  );
+const processLogs = async (allLogs, today, startHour) => {
+  // startHour determined the mode.
+  // 11  -> Mode A (Yesterday Processing)
+  // 23  -> Mode B (Today Processing)
 
-  await maintenancePool.query(
-    `
-      UPDATE maintenance_task_assign
-      SET
-        "Task_Status" = 'No',
-        "Actual_Date" = $2
-      WHERE "Task_Start_Date"::date = $1::date
-        AND "Actual_Date" IS NULL
-        AND ("Task_Status" IS NULL OR LOWER("Task_Status"::text) NOT IN ('yes','no'))
-    `,
-    [targetDate, submissionAt]
-  );
-};
-
-
-const processLogs = async (allLogs, today) => {
   const yesterday = getAdjacentDate(today, -1);
+  const submissionTime = getSubmissionTime(startHour);
 
-  // empCode -> flags
-  const empToday = new Map();
+  // empCode -> flags (Store only necessary info)
+  const empActivity = new Map();
+  // We need to track IN punches
+  // Key: empCode, Value: { punches: [ { dateStr, hour, minute } ] }
 
   for (const log of allLogs) {
-    const emp = log?.EmployeeCode;
     const punch = String(log?.PunchDirection || "").trim().toLowerCase();
+    if (punch !== "in") continue;
+
+    const emp = String(log?.EmployeeCode || "").trim();
     const dt = new Date(log?.LogDate);
+    if (!emp || Number.isNaN(dt.getTime())) continue;
 
-    if (!emp || !punch || Number.isNaN(dt.getTime())) continue;
+    if (!empActivity.has(emp)) empActivity.set(emp, []);
 
-    const logDay = formatDateString(dt);
-    if (logDay !== today) continue;
+    empActivity.get(emp).push({
+      dateStr: formatDateString(dt),
+      hour: dt.getHours(),
+      minute: dt.getMinutes()
+    });
+  }
 
-    const empCode = String(emp).trim();
-    if (!empToday.has(empCode)) {
-      empToday.set(empCode, {
-        hasInToday: false,
-        hasLateOutToday: false,
-        hasOutIn11Today: false,
-      });
-    }
+  // --- LOGIC ---
+  const usersToUpdate = new Set();
+  let targetDate = today;
+  let triggerName = "";
 
-    const state = empToday.get(empCode);
+  if (startHour === 11) {
+    // === 11:00 AM MODE (Yesterday) ===
+    targetDate = yesterday;
+    triggerName = "11 AM (Yesterday Logic)";
 
-    if (punch === "in") state.hasInToday = true;
+    // 1. Get List of Employees Present Yesterday
+    const employeesPresentYesterday = new Set();
+    const employeesWithEveningPunch = new Set(); // 6 PM - 9 PM Yesterday
 
-    if (punch === "out") {
-      const hour = dt.getHours();
-      const minute = dt.getMinutes();
-
-      // Rule-A: OUT >= 21:00 AND IN today -> (Current Logic: OUT >= 0)
-      if (hour >= LATE_OUT_HOUR) state.hasLateOutToday = true;
-
-      // Rule-B: OUT <= 11:00 (Includes 8 AM, 9 AM, 10 AM, etc.)
-      if (hour <= EARLY_OUT_HOUR) {
-        state.hasOutIn11Today = true;
+    for (const [emp, punches] of empActivity.entries()) {
+      for (const p of punches) {
+        if (p.dateStr === yesterday) {
+          employeesPresentYesterday.add(emp);
+          // Condition: 18:00 <= punch <= 21:00 (Evening)
+          // "between 6:00 PM to 9:00 PM" => >= 18 && < 21 ?? Or <= 21? 
+          // Previous Requirement: "greater than 06 PM and smaller than 09 PM" -> 18 to 21 exclusive?
+          // New Requirement: "between 6:00 PM to 9:00 PM"
+          // Let's assume inclusive 18:00 to 21:00 (Exclusive of 21:01)
+          if (p.hour >= 18 && p.hour < 21) {
+            employeesWithEveningPunch.add(emp);
+          }
+        }
       }
     }
+
+    // Trigger A: Evening Punchers
+    employeesWithEveningPunch.forEach(e => usersToUpdate.add(e));
+
+    // Trigger B: Absent (No IN punch Yesterday)
+    const allActiveIds = await getAllActiveEmployeeIds();
+    const absentEmployees = allActiveIds.filter(id => !employeesPresentYesterday.has(id));
+
+    absentEmployees.forEach(e => usersToUpdate.add(e));
+
+    logSync(`${triggerName} | Evening Punchers: ${employeesWithEveningPunch.size} | Absent: ${absentEmployees.length}`);
+
+  } else if (startHour === 23) {
+    // === 11:00 PM MODE (Today) ===
+    targetDate = today;
+    triggerName = "11 PM (Today Logic)";
+
+    // Condition: Punch IN Today between 07:00 AM and 11:50 AM
+    for (const [emp, punches] of empActivity.entries()) {
+      for (const p of punches) {
+        if (p.dateStr === today) {
+          // Check 07:00 <= time <= 11:50
+          const totalMinutes = p.hour * 60 + p.minute;
+          const startLimit = 7 * 60;       // 07:00 -> 420
+          const endLimit = 11 * 60 + 50;   // 11:50 -> 710
+
+          if (totalMinutes >= startLimit && totalMinutes <= endLimit) {
+            usersToUpdate.add(emp);
+            // Once found, valid for this user
+            break;
+          }
+        }
+      }
+    }
+
+    logSync(`${triggerName} | Morning Punchers (7:00-11:50): ${usersToUpdate.size}`);
   }
 
-  const lateOutEmployees = [];
-  const earlyOutEmployees = [];
-
-  for (const [empCode, state] of empToday.entries()) {
-    // Rule-A
-    if (state.hasLateOutToday) lateOutEmployees.push(empCode);
-
-    // Rule-B
-    if (state.hasOutIn11Today) earlyOutEmployees.push(empCode);
-  }
-
-  logSync("DEVICE SYNC: 12:00 AM (Late Out) employees =>", lateOutEmployees.length);
-  logSync("DEVICE SYNC: 12:00 PM (Early Out) employees =>", earlyOutEmployees.length);
-
-  // Both rules should mark tasks older than yesterday (current_date - 1)
-  const [lateOutResult, earlyOutResult] = await Promise.all([
-    markChecklistTasksNotDone(lateOutEmployees, yesterday),
-    markChecklistTasksNotDone(earlyOutEmployees, yesterday),
-    markAllYesterdayTasksNotDone(yesterday),
-  ]);
-
-  logSync("DEVICE SYNC: Rule-A (12:00 AM) Checklist NotDone =>", lateOutResult.checklistUpdated, "Maintenance NotDone =>", lateOutResult.maintenanceUpdated);
-  logSync("DEVICE SYNC: Rule-B (12:00 PM) Checklist NotDone =>", earlyOutResult.checklistUpdated, "Maintenance NotDone =>", earlyOutResult.maintenanceUpdated);
+  // EXECUTE UPDATE
+  const uniqueUsers = Array.from(usersToUpdate);
+  const result = await markChecklistTasksNotDone(uniqueUsers, targetDate, submissionTime);
 
   return {
-    today,
-    yesterday,
-    lateOutEmployeeCodes: lateOutEmployees,
-    earlyOutEmployeeCodes: earlyOutEmployees,
-    lateOutUpdated: lateOutResult.checklistUpdated + lateOutResult.maintenanceUpdated,
-    earlyOutUpdated: earlyOutResult.checklistUpdated + earlyOutResult.maintenanceUpdated,
-    lateOutNames: lateOutResult.names,
-    earlyOutNames: earlyOutResult.names,
+    mode: triggerName,
+    activeUsers: uniqueUsers.length,
+    updated: result
   };
 };
 
-export const refreshDeviceSync = async (today = formatDateString(new Date())) => {
+
+// Run Logic
+export const refreshDeviceSync = async (today = formatDateString(new Date()), forceHour = undefined) => {
   // ✅ if recent sync already happened, skip heavy calls
   if (shouldSkipSync()) {
     logSync("DEVICE SYNC: skipped (recent/in-flight)");
     return { skipped: true };
   }
 
+  // If forceHour is provided, use it. Otherwise default to current hour (safety)
+  const currentHour = forceHour !== undefined ? forceHour : new Date().getHours();
+
+  // Decide date range based on hour
+  // If 11 (Morning Run) -> We need logs from Yesterday.
+  // If 23 (Night Run)   -> We need logs from Today.
+  // To be safe, let's just fetch Yesterday and Today always.
+
   inFlight = (async () => {
     try {
-      const IN_API_URL = `http://139.167.179.192:90/api/v2/WebAPI/GetDeviceLogs?APIKey=361011012609&SerialNumber=E03C1CB36042AA02&FromDate=${today}&ToDate=${today}`;
-      const OUT_API_URL = `http://139.167.179.192:90/api/v2/WebAPI/GetDeviceLogs?APIKey=361011012609&SerialNumber=E03C1CB34D83AA02&FromDate=${today}&ToDate=${today}`;
+      const yesterday = getAdjacentDate(today, -1);
+
+      const IN_API_URL = `http://139.167.179.192:90/api/v2/WebAPI/GetDeviceLogs?APIKey=361011012609&SerialNumber=E03C1CB36042AA02&FromDate=${yesterday}&ToDate=${today}`;
+      const OUT_API_URL = `http://139.167.179.192:90/api/v2/WebAPI/GetDeviceLogs?APIKey=361011012609&SerialNumber=E03C1CB34D83AA02&FromDate=${yesterday}&ToDate=${today}`;
 
       const [inRes, outRes] = await Promise.all([
         axios.get(IN_API_URL, { timeout: 3000 }).catch(() => ({ data: [] })),
@@ -256,10 +274,12 @@ export const refreshDeviceSync = async (today = formatDateString(new Date())) =>
       const inLogs = Array.isArray(inRes.data) ? inRes.data : [];
       const outLogs = Array.isArray(outRes.data) ? outRes.data : [];
 
-      logSync("DEVICE SYNC: in logs =>", inLogs.length, "out logs =>", outLogs.length);
+      logSync(`DEVICE SYNC: Fetched logs | IN: ${inLogs.length} | OUT: ${outLogs.length}`);
 
       const allLogs = [...inLogs, ...outLogs];
-      const result = await processLogs(allLogs, today);
+
+      // Pass hour to direct logic
+      const result = await processLogs(allLogs, today, currentHour);
 
       lastSyncAt = Date.now();
       return result;
