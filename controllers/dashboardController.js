@@ -552,6 +552,7 @@ export const getCompletedTask = async (req, res) => {
         },
         ({ source, conditions, params }) => {
           if (source.name === "maintenance") {
+            conditions.push(`LOWER("Task_Status") = 'yes'`);
             conditions.push(`${source.submissionColumn} IS NOT NULL`);
           } else if (source.statusColumnSafe && source.statusColumn) {
             conditions.push(`LOWER(${source.statusColumn}::text) = 'yes'`);
@@ -572,15 +573,17 @@ export const getCompletedTask = async (req, res) => {
     `;
 
     if (dashboardType === "checklist") {
-      query += ` AND status = 'yes' `;
+      query += ` AND LOWER(status::text) = 'yes' `;
+    } else if (dashboardType === "maintenance") {
+      query += ` AND LOWER("Task_Status") = 'yes' `;
     } else {
-      query += ` AND submission_date IS NOT NULL `;
+      query += ` AND LOWER(status::text) = 'yes' `;
     }
 
-    if (role === "user" && username) query += ` AND name='${username}'`;
-    if (role === "admin" && staffFilter !== "all") query += ` AND name='${staffFilter}'`;
+    if (role === "user" && username) query += ` AND LOWER(name)=LOWER('${username}')`;
+    if (role === "admin" && staffFilter !== "all") query += ` AND LOWER(name)=LOWER('${staffFilter}')`;
     if (dashboardType === "checklist" && departmentFilter !== "all")
-      query += ` AND department='${departmentFilter}'`;
+      query += ` AND LOWER(department)=LOWER('${departmentFilter}')`;
 
     const result = await pool.query(query);
     res.json({ count: Number(result.rows[0].count) });
@@ -972,6 +975,7 @@ export const getChecklistStatsByDate = async (req, res) => {
           FROM checklist c_up
           WHERE c_up.task_start_date::date = (CURRENT_DATE + INTERVAL '1 day')::date
           AND c_up.submission_date IS NULL
+          AND c_up.task_start_date::date >= $1::date AND c_up.task_start_date::date <= $2::date
           ${staffFilter && staffFilter !== 'all' ? `AND LOWER(c_up.name)=LOWER($${idx - (departmentFilter && departmentFilter !== 'all' ? 2 : 1)})` : ''} 
           ${departmentFilter && departmentFilter !== 'all' ? `AND LOWER(c_up.department)=LOWER($${idx - 1})` : ''}
         ) AS upcoming_tasks,
@@ -981,6 +985,7 @@ export const getChecklistStatsByDate = async (req, res) => {
           WHERE c_ov.task_start_date::date < CURRENT_DATE
           AND (c_ov.status IS NULL OR LOWER(c_ov.status::text) <> 'yes')
           AND c_ov.submission_date IS NULL
+          AND c_ov.task_start_date::date >= $1::date AND c_ov.task_start_date::date <= $2::date
           ${staffFilter && staffFilter !== 'all' ? `AND LOWER(c_ov.name)=LOWER($${idx - (departmentFilter && departmentFilter !== 'all' ? 2 : 1)})` : ''} 
           ${departmentFilter && departmentFilter !== 'all' ? `AND LOWER(c_ov.department)=LOWER($${idx - 1})` : ''}
         ) AS overdue_tasks,
@@ -988,9 +993,19 @@ export const getChecklistStatsByDate = async (req, res) => {
           SELECT COUNT(*)
           FROM checklist c_nd
           WHERE LOWER(c_nd.status::text) = 'no'
+          AND c_nd.task_start_date::date >= $1::date AND c_nd.task_start_date::date <= $2::date
           ${staffFilter && staffFilter !== 'all' ? `AND LOWER(c_nd.name)=LOWER($${idx - (departmentFilter && departmentFilter !== 'all' ? 2 : 1)})` : ''} 
           ${departmentFilter && departmentFilter !== 'all' ? `AND LOWER(c_nd.department)=LOWER($${idx - 1})` : ''}
-        ) AS not_done_tasks
+        ) AS not_done_tasks,
+        (
+          SELECT COUNT(*)
+          FROM checklist c_pn
+          WHERE c_pn.task_start_date::date = CURRENT_DATE
+          AND c_pn.submission_date IS NULL
+          AND c_pn.task_start_date::date >= $1::date AND c_pn.task_start_date::date <= $2::date
+          ${staffFilter && staffFilter !== 'all' ? `AND LOWER(c_pn.name)=LOWER($${idx - (departmentFilter && departmentFilter !== 'all' ? 2 : 1)})` : ''} 
+          ${departmentFilter && departmentFilter !== 'all' ? `AND LOWER(c_pn.department)=LOWER($${idx - 1})` : ''}
+        ) AS pending_tasks
       FROM checklist
       WHERE task_start_date::date >= $1::date
       AND task_start_date::date <= $2::date
@@ -1006,7 +1021,7 @@ export const getChecklistStatsByDate = async (req, res) => {
     const overdueTasks = Number(row.overdue_tasks || 0);
     const upcomingTasks = Number(row.upcoming_tasks || 0);
     const notDoneTasks = Number(row.not_done_tasks || 0);
-    const pendingTasks = Math.max(totalTasks - completedTasks, 0);
+    const pendingTasks = Number(row.pending_tasks || 0);
     // console.log(upcomingTasks)
     res.json({
       totalTasks,

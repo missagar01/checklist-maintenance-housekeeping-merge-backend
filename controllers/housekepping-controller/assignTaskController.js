@@ -265,7 +265,13 @@ const assignTaskController = {
       const effectiveOffset = page && limit ? (page - 1) * limit : offset;
       const department = req.query?.department;
 
-      const items = await assignTaskService.list({ limit, offset: effectiveOffset, department });
+      const items = await assignTaskService.list({ 
+        limit, 
+        offset: effectiveOffset, 
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+      });
       res.json(items);
     } catch (err) {
       next(err);
@@ -304,9 +310,14 @@ const assignTaskController = {
     }
   },
 
-  async stats(_req, res, next) {
+  async stats(req, res, next) {
     try {
-      const snapshot = await assignTaskService.stats();
+      const department = resolveDepartment(req);
+      const snapshot = await assignTaskService.aggregateStats(null, {
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+      });
       res.json(snapshot);
     } catch (err) {
       next(err);
@@ -325,7 +336,9 @@ const assignTaskController = {
       const { items, total } = await assignTaskService.overdueWithTotal({
         limit,
         offset: effectiveOffset,
-        department
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
       });
       const payload = {
         items,
@@ -352,7 +365,9 @@ const assignTaskController = {
       const { items, total } = await assignTaskService.notDoneWithTotal({
         limit,
         offset: effectiveOffset,
-        department
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
       });
       const payload = {
         items,
@@ -379,7 +394,9 @@ const assignTaskController = {
       const { items, total } = await assignTaskService.todayWithTotal({
         limit,
         offset: effectiveOffset,
-        department
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
       });
       const payload = {
         items,
@@ -406,7 +423,9 @@ const assignTaskController = {
       const { items, total } = await assignTaskService.tomorrowWithTotal({
         limit,
         offset: effectiveOffset,
-        department
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
       });
       const payload = {
         items,
@@ -425,7 +444,11 @@ const assignTaskController = {
   async countToday(req, res, next) {
     try {
       const department = resolveDepartment(req);
-      const count = await assignTaskService.countToday({ department });
+      const count = await assignTaskService.countToday({ 
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+      });
       res.json({ count });
     } catch (err) {
       next(err);
@@ -435,7 +458,11 @@ const assignTaskController = {
   async countTomorrow(req, res, next) {
     try {
       const department = resolveDepartment(req);
-      const count = await assignTaskService.countTomorrow({ department });
+      const count = await assignTaskService.countTomorrow({ 
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+      });
       res.json({ count });
     } catch (err) {
       next(err);
@@ -445,7 +472,11 @@ const assignTaskController = {
   async countOverdue(req, res, next) {
     try {
       const department = resolveDepartment(req);
-      const count = await assignTaskService.countOverdue({ department });
+      const count = await assignTaskService.countOverdue({ 
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+      });
       res.json({ count });
     } catch (err) {
       next(err);
@@ -455,7 +486,11 @@ const assignTaskController = {
   async countNotDone(req, res, next) {
     try {
       const department = resolveDepartment(req);
-      const count = await assignTaskService.countNotDone({ department });
+      const count = await assignTaskService.countNotDone({ 
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+      });
       res.json({ count });
     } catch (err) {
       next(err);
@@ -473,7 +508,9 @@ const assignTaskController = {
       const { items, total } = await assignTaskService.pendingWithTotal({
         limit,
         offset: effectiveOffset,
-        department
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
       });
       const payload = {
         items,
@@ -508,7 +545,9 @@ const assignTaskController = {
       const { items, total } = await assignTaskService.historyWithTotal({
         limit,
         offset: effectiveOffset,
-        department
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
       });
       const payload = {
         items,

@@ -42,6 +42,7 @@ import maintenanceDashboardRoutes from "./routes/maintenance-routes/maintenanceD
 
 import housekeepingRoutes from "./routes/housekepping-routes/index.js";
 import { refreshDeviceSync } from "./services/deviceSync.js";
+import { assignTaskService } from "./services/housekepping-services/assignTaskServices.js";
 
 /* =======================
    ROUTES
@@ -123,10 +124,17 @@ if (DEVICE_SYNC_ENABLED) {
     try {
       const mode = isMorningRun ? "Morning (11 AM)" : "Night (11 PM)";
       console.log(`⏱ ${mode} Device Sync triggered`);
-      
+
       // Pass the hour so logic knows which trigger to run
       await refreshDeviceSync(undefined, hour);
-      
+
+      // Trigger Housekeeping overdue task update (Morning only)
+      if (isMorningRun) {
+        console.log("🧹 Housekeeping Overdue Task Update triggered");
+        const count = await assignTaskService.markOverdueAsNotDone();
+        console.log(`✅ Housekeeping Overdue Task Update completed. Updated ${count} tasks.`);
+      }
+
       console.log(`✅ ${mode} Device Sync completed`);
     } catch (err) {
       console.error("❌ DEVICE SYNC ERROR:", err);

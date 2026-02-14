@@ -226,7 +226,6 @@ export const getStaffTasks = async (req, res) => {
     `;
 
 
-
     // 4. Execution
     // Note: maintenancePool is needed if they are different DBs.
     // Based on imports, maintenancePool exists.
@@ -265,7 +264,7 @@ export const getStaffTasks = async (req, res) => {
         staffMap.set(key, {
           id: key.replace(/\s+/g, "-"),
           name: name,
-          employee_id: row.employee_id || null, // Preserve employee_id from checklist
+          employee_id: row.employee_id || null, // Preserve employee_id
           email: `${key.replace(/\s+/g, ".")}@example.com`,
           department: row.department,
           totalTasks: 0,
@@ -282,7 +281,7 @@ export const getStaffTasks = async (req, res) => {
 
       const staff = staffMap.get(key);
 
-      // Update employee_id if found in this row (from checklist)
+      // Update employee_id if found in this row
       if (row.employee_id && !staff.employee_id) {
         staff.employee_id = row.employee_id;
       }

@@ -1,5 +1,6 @@
 // routes/settingRoutes.js
 import express from "express";
+import authMiddleware from "../middleware/authMiddleware.js";
 import {
   getUsers,
   getUserById,
@@ -18,6 +19,9 @@ import {
 } from "../controllers/settingController.js";
 
 const router = express.Router();
+
+// Apply authMiddleware to all routes below
+router.use(authMiddleware);
 
 // USERS
 router.get("/users", getUsers);

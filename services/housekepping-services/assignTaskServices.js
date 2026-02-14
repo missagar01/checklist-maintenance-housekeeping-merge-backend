@@ -150,7 +150,7 @@ class AssignTaskService {
     }));
 
     return this.bulkCreate(tasks);
-  }
+  } 
 
   update(id, input) {
     const payload = { ...input };
@@ -294,6 +294,7 @@ class AssignTaskService {
   // Return all tasks with start date < today and no submission
   async overdue(options = {}) {
     // Use today's date for comparison (not endOfYesterday) to match user's SQL query
+    // If startDate/endDate provided, override cutoff
     return assignTaskRepository.findOverdue(null, options);
   }
 
@@ -389,19 +390,37 @@ class AssignTaskService {
   }
 
   async aggregateStats(cutoffOverride, options = {}) {
+    const { startDate, endDate } = options;
+
+    // Default to current month if no range given
+    let start = startDate;
+    let end = endDate;
+
+    if (!start || !end) {
+      const now = new Date();
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+      const pad = (n) => String(n).padStart(2, '0');
+      const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+      start = fmt(first);
+      end = fmt(last);
+    }
+
     // Run all counts in parallel for performance
     const [total, completed, pending, upcoming, overdue, notdone] = await Promise.all([
-      // Total tasks in current month TILL TODAY
-      this.list({ ...options, date_range: 'current_month_to_today' }).then(items => items.length),
-      // Completed tasks in current month
-      this.list({ ...options, status: 'yes', date_range: 'current_month' }).then(items => items.length),
-      // Pending tasks for today
-      this.countToday(options),
-      // Upcoming tasks for tomorrow
-      this.countTomorrow(options),
-      // Overdue tasks in current month
+      // Total tasks in range
+      this.list({ ...options, startDate: start, endDate: end }).then(items => items.length),
+      // Completed tasks in range (status filtering now supported in repo)
+      this.list({ ...options, status: 'yes', startDate: start, endDate: end }).then(items => items.length),
+      // Pending tasks for today (unsubmitted only for stats)
+      this.countToday({ ...options, pendingOnly: true }),
+      // Upcoming tasks for tomorrow (unsubmitted only for stats)
+      this.countTomorrow({ ...options, pendingOnly: true }),
+      // Overdue tasks (repository already filters by current month if no range)
       this.countOverdue(options),
-      // Not Done tasks in current month
+      // Not Done tasks (repository strictly filters by current month)
       this.countNotDone(options)
     ]);
 
@@ -417,6 +436,10 @@ class AssignTaskService {
       not_done: notdone,
       progress_percent: progress
     };
+  }
+
+  async markOverdueAsNotDone() {
+    return assignTaskRepository.updateOverdueTasks();
   }
 }
 

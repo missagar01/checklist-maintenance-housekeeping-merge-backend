@@ -39,6 +39,8 @@ export const getDashboardStats = async (req, res) => {
       departmentFilter,
       role,
       username,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
     };
 
     // ✅ OPTIMIZED: Run independent queries in parallel
@@ -54,14 +56,22 @@ export const getDashboardStats = async (req, res) => {
       WHERE "Actual_Date" IS NOT NULL
     `;
     const costParams = [];
+    let j = 1;
+
+    if (params.startDate && params.endDate) {
+      costQuery += ` AND "Task_Start_Date"::date >= $${j}::date AND "Task_Start_Date"::date <= $${j+1}::date`;
+      costParams.push(params.startDate, params.endDate);
+      j += 2;
+    }
 
     if (role === "user" && username) {
-      costQuery += ` AND LOWER("Doer_Name") = LOWER($1)`;
+      costQuery += ` AND LOWER("Doer_Name") = LOWER($${j})`;
       costParams.push(username);
+      j++;
     } else if (staffFilter && staffFilter !== "all" && role === "admin") {
-      // NOTE: Original logic had implicit $1 here for staffFilter
-      costQuery += ` AND LOWER("Doer_Name") = LOWER($1)`;
+      costQuery += ` AND LOWER("Doer_Name") = LOWER($${j})`;
       costParams.push(staffFilter);
+      j++;
     }
 
     const [summary, machinesRes, costRes] = await Promise.all([
@@ -100,7 +110,17 @@ export const getDashboardStats = async (req, res) => {
 export const getMaintenanceCostByMachine = async (req, res) => {
   try {
 
-    const { condition, params } = getUserFilter(req);
+    const { condition, params: userParams } = getUserFilter(req);
+    const { startDate, endDate } = req.query;
+    const params = [...userParams];
+    let j = params.length + 1;
+
+    let dateCond = "";
+    if (startDate && endDate) {
+      dateCond = ` AND "Task_Start_Date"::date >= $${j}::date AND "Task_Start_Date"::date <= $${j+1}::date`;
+      params.push(startDate, endDate);
+      j += 2;
+    }
 
     const query = `
       SELECT
@@ -109,6 +129,7 @@ export const getMaintenanceCostByMachine = async (req, res) => {
       FROM maintenance_task_assign
       WHERE "Actual_Date" IS NOT NULL
       ${condition}
+      ${dateCond}
       GROUP BY "Serial_No"
       ORDER BY maintenance_cost DESC;
     `;
@@ -135,7 +156,17 @@ export const getMaintenanceCostByMachine = async (req, res) => {
 export const getDepartmentCostBreakdown = async (req, res) => {
   try {
 
-    const { condition, params } = getUserFilter(req);
+    const { condition, params: userParams } = getUserFilter(req);
+    const { startDate, endDate } = req.query;
+    const params = [...userParams];
+    let j = params.length + 1;
+
+    let dateCond = "";
+    if (startDate && endDate) {
+      dateCond = ` AND "Task_Start_Date"::date >= $${j}::date AND "Task_Start_Date"::date <= $${j+1}::date`;
+      params.push(startDate, endDate);
+      j += 2;
+    }
 
     const query = `
       SELECT 
@@ -144,6 +175,7 @@ export const getDepartmentCostBreakdown = async (req, res) => {
       FROM maintenance_task_assign
       WHERE "Actual_Date" IS NOT NULL
       ${condition}
+      ${dateCond}
       GROUP BY "machine_department"
       ORDER BY cost DESC;
     `;
@@ -171,7 +203,17 @@ export const getDepartmentCostBreakdown = async (req, res) => {
 export const getFrequencyStats = async (req, res) => {
   try {
 
-    const { condition, params } = getUserFilter(req);
+    const { condition, params: userParams } = getUserFilter(req);
+    const { startDate, endDate } = req.query;
+    const params = [...userParams];
+    let j = params.length + 1;
+
+    let dateCond = "";
+    if (startDate && endDate) {
+      dateCond = ` AND "Task_Start_Date"::date >= $${j}::date AND "Task_Start_Date"::date <= $${j+1}::date`;
+      params.push(startDate, endDate);
+      j += 2;
+    }
 
     const query = `
       SELECT 
@@ -180,6 +222,7 @@ export const getFrequencyStats = async (req, res) => {
       FROM maintenance_task_assign
       WHERE "Actual_Date" IS NOT NULL
       ${condition}
+      ${dateCond}
       GROUP BY LOWER("Frequency");
     `;
 
@@ -217,6 +260,8 @@ export const getTodayTasks = async (req, res) => {
         taskView: "recent",
         role,
         username,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
       }),
       countMaintenanceTaskByViewService({
         taskView: "recent",
@@ -224,6 +269,8 @@ export const getTodayTasks = async (req, res) => {
         departmentFilter,
         role,
         username,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
       })
     ]);
 
@@ -265,6 +312,8 @@ export const getUpcomingTasks = async (req, res) => {
         taskView: "upcoming",
         role,
         username,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
       }),
       countMaintenanceTaskByViewService({
         taskView: "upcoming",
@@ -272,6 +321,8 @@ export const getUpcomingTasks = async (req, res) => {
         departmentFilter,
         role,
         username,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
       })
     ]);
 
@@ -313,6 +364,8 @@ export const getOverdueTasks = async (req, res) => {
         taskView: "overdue",
         role,
         username,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
       }),
       countMaintenanceTaskByViewService({
         taskView: "overdue",
@@ -320,6 +373,8 @@ export const getOverdueTasks = async (req, res) => {
         departmentFilter,
         role,
         username,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
       })
     ]);
 
@@ -362,6 +417,8 @@ export const getDashboardData = async (req, res) => {
         taskView,
         role,
         username,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
       }),
       countMaintenanceTaskByViewService({
         taskView,
@@ -369,6 +426,8 @@ export const getDashboardData = async (req, res) => {
         departmentFilter,
         role,
         username,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
       })
     ]);
 

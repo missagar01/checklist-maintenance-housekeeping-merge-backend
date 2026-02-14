@@ -60,6 +60,8 @@ export const fetchMaintenanceDashboardDataService = async ({
   departmentFilter = "all",
   role = "admin",
   username = null,
+  startDate = null,
+  endDate = null,
 }) => {
   try {
     const { date: todayDate, start: todayStart, end: todayEnd } = getToday();
@@ -90,25 +92,49 @@ export const fetchMaintenanceDashboardDataService = async ({
       i++;
     }
     // Task view filters
+    const useRange = startDate && endDate;
+
     if (taskView === "recent") {
-      // Today's tasks
-      conditions.push(`"Task_Start_Date"::date = CURRENT_DATE`);
+      // Today's tasks (or range's pending tasks)
+      if (useRange) {
+        conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+        params.push(startDate);
+        i++;
+        conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+        params.push(endDate);
+        i++;
+      } else {
+        conditions.push(`"Task_Start_Date"::date = CURRENT_DATE`);
+      }
       conditions.push(`"Actual_Date" IS NULL`);
     } else if (taskView === "upcoming") {
-      // Tomorrow's tasks
-      const t = new Date();
-      t.setDate(t.getDate() + 1);
-      const y = t.getFullYear();
-      const m = String(t.getMonth() + 1).padStart(2, '0');
-      const d = String(t.getDate()).padStart(2, '0');
-      const tStr = `${y}-${m}-${d}`;
-
-      conditions.push(`"Task_Start_Date"::date = $${i}::date`);
-      params.push(tStr);
-      i++;
+      // Tomorrow's tasks (or range's upcoming tasks)
+      if (useRange) {
+        conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+        params.push(startDate);
+        i++;
+        conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+        params.push(endDate);
+        i++;
+      } else {
+        const t = new Date();
+        t.setDate(t.getDate() + 1);
+        const tStr = t.toISOString().split("T")[0];
+        conditions.push(`"Task_Start_Date"::date = $${i}::date`);
+        params.push(tStr);
+        i++;
+      }
       conditions.push(`"Actual_Date" IS NULL`);
     } else if (taskView === "overdue") {
-      // Past due tasks
+      // Past due tasks within range
+      if (useRange) {
+        conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+        params.push(startDate);
+        i++;
+        conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+        params.push(endDate);
+        i++;
+      }
       conditions.push(`"Task_Start_Date"::date < CURRENT_DATE`);
       conditions.push(`"Actual_Date" IS NULL`);
     } else if (taskView === "notdone") {
@@ -116,12 +142,29 @@ export const fetchMaintenanceDashboardDataService = async ({
       conditions.push(`LOWER("Task_Status") = 'no'`);
       conditions.push(`"Actual_Date" IS NOT NULL`);
 
-      const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
+      if (useRange) {
+        conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+        params.push(startDate);
+        i++;
+        conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+        params.push(endDate);
+        i++;
+      } else {
+        const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
+        conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+        params.push(monthStart);
+        i++;
+        conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+        params.push(monthEnd);
+        i++;
+      }
+    } else if (useRange) {
+      // Custom date range filtering (no specific view)
       conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
-      params.push(monthStart);
+      params.push(startDate);
       i++;
       conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
-      params.push(monthEnd);
+      params.push(endDate);
       i++;
     } else {
       // default: all from start of current month up to today
@@ -167,15 +210,25 @@ export const countTotalMaintenanceTaskService = async ({
   departmentFilter = "all",
   role = "admin",
   username = null,
+  startDate = null,
+  endDate = null,
 }) => {
   try {
-    const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
+    let start, end;
+    if (startDate && endDate) {
+      start = startDate;
+      end = endDate;
+    } else {
+      const range = getCurrentMonthRange();
+      start = range.start;
+      end = range.end;
+    }
 
     let conditions = [
-      `"Task_Start_Date" >= $1`,
-      `"Task_Start_Date" <= $2`
+      `"Task_Start_Date"::date >= $1::date`,
+      `"Task_Start_Date"::date <= $2::date`
     ];
-    let params = [monthStart, monthEnd];
+    let params = [start, end];
     let i = 3;
 
     if (role === "user" && username) {
@@ -213,16 +266,27 @@ export const countCompleteMaintenanceTaskService = async ({
   departmentFilter = "all",
   role = "admin",
   username = null,
+  startDate = null,
+  endDate = null,
 }) => {
   try {
-    const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
+    let start, end;
+    if (startDate && endDate) {
+      start = startDate;
+      end = endDate;
+    } else {
+      const range = getCurrentMonthRange();
+      start = range.start;
+      end = range.end;
+    }
 
     let conditions = [
-      `"Task_Start_Date" >= $1`,
-      `"Task_Start_Date" <= $2`,
-      `"Actual_Date" IS NOT NULL`
+      `"Task_Start_Date"::date >= $1::date`,
+      `"Task_Start_Date"::date <= $2::date`,
+      `"Actual_Date" IS NOT NULL`,
+      `LOWER("Task_Status") = 'yes'`
     ];
-    let params = [monthStart, monthEnd];
+    let params = [start, end];
     let i = 3;
 
     if (role === "user" && username) {
@@ -259,16 +323,27 @@ export const countPendingMaintenanceTaskService = async ({
   departmentFilter = "all",
   role = "admin",
   username = null,
+  startDate = null,
+  endDate = null,
 }) => {
   try {
-    const { date: todayDate } = getToday();
+    let conditions = [];
+    let params = [];
+    let i = 1;
 
-    let conditions = [
-      `"Task_Start_Date"::date = $1::date`,
-      `"Actual_Date" IS NULL`
-    ];
-    let params = [todayDate];
-    let i = 2;
+    if (startDate && endDate) {
+      conditions.push(`"Task_Start_Date"::date >= CURRENT_DATE`);
+      conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+      params.push(endDate);
+      i++;
+    } else {
+      const { date: todayDate } = getToday();
+      conditions.push(`"Task_Start_Date"::date = $${i}::date`);
+      params.push(todayDate);
+      i++;
+    }
+
+    conditions.push(`"Actual_Date" IS NULL`);
 
     if (role === "user" && username) {
       conditions.push(`LOWER("Doer_Name") = LOWER($${i})`);
@@ -301,17 +376,32 @@ export const countUpcomingMaintenanceTaskService = async ({
   departmentFilter = "all",
   role = "admin",
   username = null,
+  startDate = null,
+  endDate = null,
 }) => {
   try {
-    const { start: tomorrowStart, end: tomorrowEnd } = getTomorrow();
+    let conditions = [];
+    let params = [];
+    let i = 1;
 
-    let conditions = [
-      `"Task_Start_Date" >= $1`,
-      `"Task_Start_Date" <= $2`,
-      `"Actual_Date" IS NULL`
-    ];
-    let params = [tomorrowStart, tomorrowEnd];
-    let i = 3;
+    if (startDate && endDate) {
+      conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+      params.push(startDate);
+      i++;
+      conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+      params.push(endDate);
+      i++;
+    } else {
+      const { start: tomorrowStart, end: tomorrowEnd } = getTomorrow();
+      conditions.push(`"Task_Start_Date" >= $${i}`);
+      params.push(tomorrowStart);
+      i++;
+      conditions.push(`"Task_Start_Date" <= $${i}`);
+      params.push(tomorrowEnd);
+      i++;
+    }
+
+    conditions.push(`"Actual_Date" IS NULL`);
 
     if (role === "user" && username) {
       conditions.push(`LOWER("Doer_Name") = LOWER($${i})`);
@@ -347,20 +437,27 @@ export const countNotDoneMaintenanceTaskService = async ({
   departmentFilter = "all",
   role = "admin",
   username = null,
+  startDate = null,
+  endDate = null,
 }) => {
   try {
-    const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
-
-    // Count where Status is 'No' (or equivalent for Not Done)
-    // AND within current month range
+    let start, end;
+    if (startDate && endDate) {
+      start = startDate;
+      end = endDate;
+    } else {
+      const range = getCurrentMonthRange();
+      start = range.start;
+      end = range.end;
+    }
 
     let conditions = [
       `LOWER("Task_Status") = 'no'`,
       `"Actual_Date" IS NOT NULL`,
-      `"Task_Start_Date" >= $1`,
-      `"Task_Start_Date" <= $2`
+      `"Task_Start_Date"::date >= $1::date`,
+      `"Task_Start_Date"::date <= $2::date`
     ];
-    let params = [monthStart, monthEnd];
+    let params = [start, end];
     let i = 3;
 
     if (role === "user" && username) {
@@ -399,16 +496,29 @@ export const countOverDueMaintenanceTaskService = async ({
   departmentFilter = "all",
   role = "admin",
   username = null,
+  startDate = null,
+  endDate = null,
 }) => {
   try {
-    const { date: todayDate } = getToday();
+    let conditions = [];
+    let params = [];
+    let i = 1;
 
-    let conditions = [
-      `"Task_Start_Date"::date < $1::date`,
-      `"Actual_Date" IS NULL`
-    ];
-    let params = [todayDate];
-    let i = 2;
+    if (startDate && endDate) {
+      conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+      params.push(startDate);
+      i++;
+      conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+      params.push(endDate);
+      i++;
+    } else {
+      const { date: todayDate } = getToday();
+      conditions.push(`"Task_Start_Date"::date < $${i}::date`);
+      params.push(todayDate);
+      i++;
+    }
+
+    conditions.push(`"Actual_Date" IS NULL`);
 
     if (role === "user" && username) {
       conditions.push(`LOWER("Doer_Name") = LOWER($${i})`);
@@ -484,6 +594,8 @@ export const countMaintenanceTaskByViewService = async ({
   departmentFilter = "all",
   role = "admin",
   username = null,
+  startDate = null,
+  endDate = null,
 }) => {
   try {
     const { date: todayDate } = getToday();
@@ -514,36 +626,92 @@ export const countMaintenanceTaskByViewService = async ({
     }
 
     // Task view filters
+    const useRange = startDate && endDate;
+
     if (taskView === "recent") {
-      conditions.push(`"Task_Start_Date"::date = CURRENT_DATE`);
-      conditions.push(`"Actual_Date" IS NULL`);
+      if (useRange) {
+        conditions.push(`\"Task_Start_Date\"::date >= $${i}::date`);
+        params.push(startDate);
+        i++;
+        conditions.push(`\"Task_Start_Date\"::date <= $${i}::date`);
+        params.push(endDate);
+        i++;
+      } else {
+        conditions.push(`\"Task_Start_Date\"::date = CURRENT_DATE`);
+      }
+      conditions.push(`\"Actual_Date\" IS NULL`);
     } else if (taskView === "upcoming") {
-      const t = new Date();
-      t.setDate(t.getDate() + 1);
-      const tStr = t.toISOString().split("T")[0];
-      conditions.push(`"Task_Start_Date"::date = $${i}::date`);
-      params.push(tStr);
-      i++;
-      conditions.push(`"Actual_Date" IS NULL`);
+      if (useRange) {
+        conditions.push(`\"Task_Start_Date\"::date >= $${i}::date`);
+        params.push(startDate);
+        i++;
+        conditions.push(`\"Task_Start_Date\"::date <= $${i}::date`);
+        params.push(endDate);
+        i++;
+      } else {
+        const t = new Date();
+        t.setDate(t.getDate() + 1);
+        const tStr = t.toISOString().split("T")[0];
+        conditions.push(`\"Task_Start_Date\"::date = $${i}::date`);
+        params.push(tStr);
+        i++;
+      }
+      conditions.push(`\"Actual_Date\" IS NULL`);
     } else if (taskView === "overdue") {
-      conditions.push(`"Task_Start_Date"::date < CURRENT_DATE`);
-      conditions.push(`"Actual_Date" IS NULL`);
+      if (useRange) {
+        conditions.push(`\"Task_Start_Date\"::date >= $${i}::date`);
+        params.push(startDate);
+        i++;
+        conditions.push(`\"Task_Start_Date\"::date <= $${i}::date`);
+        params.push(endDate);
+        i++;
+      }
+      conditions.push(`\"Task_Start_Date\"::date < CURRENT_DATE`);
+      conditions.push(`\"Actual_Date\" IS NULL`);
     } else if (taskView === "notdone") {
-      conditions.push(`LOWER("Task_Status") = 'no'`);
-      conditions.push(`"Actual_Date" IS NOT NULL`);
-      const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
-      conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
-      params.push(monthStart);
+      conditions.push(`LOWER(\"Task_Status\") = 'no'`);
+      conditions.push(`\"Actual_Date\" IS NOT NULL`);
+      if (useRange) {
+        conditions.push(`\"Task_Start_Date\"::date >= $${i}::date`);
+        params.push(startDate);
+        i++;
+        conditions.push(`\"Task_Start_Date\"::date <= $${i}::date`);
+        params.push(endDate);
+        i++;
+      } else {
+        const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
+        conditions.push(`\"Task_Start_Date\"::date >= $${i}::date`);
+        params.push(monthStart);
+        i++;
+        conditions.push(`\"Task_Start_Date\"::date <= $${i}::date`);
+        params.push(monthEnd);
+        i++;
+      }
+    } else if (taskView === "pending") {
+      conditions.push(`"Actual_Date" IS NULL`); // Pending tasks are not yet completed
+      if (useRange) {
+        // For pending in a range, we only want tasks from today onwards within that range
+        conditions.push(`"Task_Start_Date"::date >= CURRENT_DATE`);
+        conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+        params.push(endDate);
+        i++;
+      } else {
+        // If no range, pending tasks are from today onwards indefinitely, or for the current month
+        conditions.push(`"Task_Start_Date"::date >= CURRENT_DATE`);
+      }
+    } else if (useRange) {
+      conditions.push(`\"Task_Start_Date\"::date >= $${i}::date`);
+      params.push(startDate);
       i++;
-      conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
-      params.push(monthEnd);
+      conditions.push(`\"Task_Start_Date\"::date <= $${i}::date`);
+      params.push(endDate);
       i++;
     } else {
       const { start: monthStart, end: monthEnd } = getCurrentMonthRange();
-      conditions.push(`"Task_Start_Date"::date >= $${i}::date`);
+      conditions.push(`\"Task_Start_Date\"::date >= $${i}::date`);
       params.push(monthStart);
       i++;
-      conditions.push(`"Task_Start_Date"::date <= $${i}::date`);
+      conditions.push(`\"Task_Start_Date\"::date <= $${i}::date`);
       params.push(monthEnd);
       i++;
     }

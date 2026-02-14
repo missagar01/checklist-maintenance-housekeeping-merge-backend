@@ -1,5 +1,6 @@
 // controllers/loginController.js
 import { pool } from "../config/db.js";
+import jwt from "jsonwebtoken";
 
 // controllers/loginController.js
 // controllers/loginController.js
@@ -33,7 +34,15 @@ export const loginUserController = async (req, res) => {
       return res.status(403).json({ error: "Your account is inactive. Contact admin." });
     }
 
+    // Generate JWT Token
+    const token = jwt.sign(
+      { id: user.id, username: user.user_name, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+    );
+
     return res.json({
+      token,
       id: user.id,
       user_name: user.user_name,
       role: user.role,
@@ -42,8 +51,8 @@ export const loginUserController = async (req, res) => {
       user_access1: user.user_access1 || "",
       page_access: user.page_access || "",
       system_access: user.system_access || "", // Return system_access,
-      verify_access: user.verify_access || "" ,// Return verify_access
-      verify_access_dept: user.verify_access_dept || "" ,// Return verify_access_dept
+      verify_access: user.verify_access || "",// Return verify_access
+      verify_access_dept: user.verify_access_dept || "",// Return verify_access_dept
     });
 
   } catch (err) {

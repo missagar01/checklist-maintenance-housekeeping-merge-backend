@@ -174,7 +174,11 @@ const dashboardController = {
         });
       }
       
-      const data = await dashboardService.summary({ department });
+      const data = await dashboardService.summary({ 
+        department,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+      });
       
       // Log the result counts for verification
       logger.info({
