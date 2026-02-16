@@ -870,10 +870,13 @@ export const getStaffByDepartment = async (req, res) => {
     let staff = result.rows || [];
 
     if (department && department !== "all") {
-      staff = staff.filter(u =>
-        u.user_access &&
-        u.user_access.toLowerCase().includes(department.toLowerCase())
-      );
+      const depLower = department.toLowerCase();
+      staff = staff.filter(u => {
+        if (!u.user_access) return false;
+        // Split by comma and trim each department, then check for exact match
+        const userDeps = u.user_access.split(',').map(d => d.trim().toLowerCase());
+        return userDeps.includes(depLower);
+      });
     }
 
     // Map to user names and filter out any null/undefined values
