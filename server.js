@@ -133,6 +133,11 @@ if (DEVICE_SYNC_ENABLED) {
         console.log("🧹 Housekeeping Overdue Task Update triggered");
         const count = await assignTaskService.markOverdueAsNotDone();
         console.log(`✅ Housekeeping Overdue Task Update completed. Updated ${count} tasks.`);
+
+        // 🧹 NEW: Blanket Overdue for Checklist & Maintenance
+        console.log("🧹 Checklist & Maintenance Overdue Update triggered");
+        const otherCounts = await import("./services/deviceSync.js").then(m => m.markAllOverdueTasksAsNotDone());
+        console.log(`✅ Checklist & Maintenance Overdue Update completed:`, otherCounts);
       }
 
       console.log(`✅ ${mode} Device Sync completed`);

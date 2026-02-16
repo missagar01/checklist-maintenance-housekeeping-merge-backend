@@ -134,6 +134,64 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate, submissionTime
 };
 
 
+/**
+ * 🧹 Blanket Overdue Update
+ * Marks ALL tasks (Checklist & Maintenance) as "No" if they were missed.
+ * This ensures triggers work in production even if biometric logs are missing.
+ */
+export const markAllOverdueTasksAsNotDone = async () => {
+  // ✅ Force IST date for comparison
+  const now = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  );
+  now.setHours(0, 0, 0, 0); // Start of Today
+
+  const targetDateStr = formatDateString(now);
+  const submissionTime = new Date(); // Current system time for completion timestamp
+
+  try {
+    // 1. Update Checklist (Overdue = task_start_date < today AND submission_date IS NULL)
+    const checklistResult = await pool.query(
+      `
+        UPDATE checklist
+        SET
+          status = 'no',
+          user_status_checklist = 'No',
+          submission_date = $2
+        WHERE task_start_date::date < $1::date
+          AND submission_date IS NULL
+          AND status IS NULL
+      `,
+      [targetDateStr, submissionTime]
+    );
+
+    // 2. Update Maintenance Tasks (Overdue = Task_Start_Date < today AND Actual_Date IS NULL)
+    const maintenanceResult = await maintenancePool.query(
+      `
+        UPDATE maintenance_task_assign
+        SET
+          "Task_Status" = 'No',
+          "Actual_Date" = $2
+        WHERE "Task_Start_Date"::date < $1::date
+          AND "Actual_Date" IS NULL
+          AND "Task_Status" IS NULL
+      `,
+      [targetDateStr, submissionTime]
+    );
+
+    logSync(`🧹 BLANKET OVERDUE: Updated | Checklist: ${checklistResult.rowCount} | Maintenance: ${maintenanceResult.rowCount}`);
+
+    return {
+      checklistUpdated: checklistResult.rowCount,
+      maintenanceUpdated: maintenanceResult.rowCount
+    };
+  } catch (error) {
+    console.error("❌ Error in markAllOverdueTasksAsNotDone:", error);
+    throw error;
+  }
+};
+
+
 const processLogs = async (allLogs, today, startHour) => {
   // startHour determined the mode.
   // 11  -> Mode A (Yesterday Processing)
