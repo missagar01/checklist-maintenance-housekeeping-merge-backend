@@ -15,7 +15,7 @@ if (config.env !== 'test' && config.pg.host) {
     ssl: config.pg.ssl ? { rejectUnauthorized: false } : false,
     max: 10,
     idleTimeoutMillis: 30_000
-  });
+  }); 
 
   pool
     .connect()
