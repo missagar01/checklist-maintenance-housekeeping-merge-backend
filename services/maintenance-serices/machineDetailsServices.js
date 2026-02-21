@@ -135,20 +135,20 @@ export const getMachineHistory = async (serialNo) => {
   try {
     const query = `
       SELECT
-        "Task_No" AS task_no,
-        "Serial_No" AS serial_no,
-        "Machine_Name" AS machine_name,
-        "Task_Type" AS task_type,
-        "Task_Start_Date" AS task_start_date,
-        "Actual_Date" AS actual_date,
-        "Doer_Name" AS doer_name,
-        "Maintenance_Cost" AS maintenance_cost,
-        "Temperature_Status" AS temperature_status,
-        "Remarks" AS remarks
+        task_no AS task_no,
+        serial_no AS serial_no,
+        machine_name AS machine_name,
+        task_type AS task_type,
+        task_start_date AS task_start_date,
+        actual_date AS actual_date,
+        doer_name AS doer_name,
+        maintenance_cost AS maintenance_cost,
+        temperature_status AS temperature_status,
+        remarks AS remarks
       FROM maintenance_task_assign
-      WHERE LOWER(TRIM("Serial_No")) = LOWER(TRIM($1))
-        AND COALESCE("Actual_Date"::text, '') <> ''  -- ✅ only completed
-      ORDER BY "Task_Start_Date" DESC;
+      WHERE LOWER(TRIM(serial_no)) = LOWER(TRIM($1))
+        AND COALESCE(actual_date::text, '') <> ''  -- ✅ only completed
+      ORDER BY task_start_date DESC;
     `;
 
     let result;
@@ -181,20 +181,20 @@ export const getMachineHistoryByTag = async (tagNo) => {
   try {
     const query = `
       SELECT
-        "Task_No" AS task_no,
-        "Tag_No" AS tag_no,
-        "Machine_Name" AS machine_name,
-        "Task_Type" AS task_type,
-        "Task_Start_Date" AS task_start_date,
-        "Actual_Date" AS actual_date,
-        "Doer_Name" AS doer_name,
-        "Maintenance_Cost" AS maintenance_cost,
-        "Temperature_Status" AS temperature_status,
-        "Remarks" AS remarks
+        task_no AS task_no,
+        tag_no AS tag_no,
+        machine_name AS machine_name,
+        task_type AS task_type,
+        task_start_date AS task_start_date,
+        actual_date AS actual_date,
+        doer_name AS doer_name,
+        maintenance_cost AS maintenance_cost,
+        temperature_status AS temperature_status,
+        remarks AS remarks
       FROM maintenance_task_assign
-      WHERE LOWER(TRIM("Tag_No")) = LOWER(TRIM($1))
-        AND COALESCE("Actual_Date"::text, '') <> ''  -- ✅ only completed
-      ORDER BY "Task_Start_Date" DESC;
+      WHERE LOWER(TRIM(tag_no)) = LOWER(TRIM($1))
+        AND COALESCE(actual_date::text, '') <> ''  -- ✅ only completed
+      ORDER BY task_start_date DESC;
     `;
 
     let result;

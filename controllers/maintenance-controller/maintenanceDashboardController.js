@@ -14,7 +14,7 @@ const getUserFilter = (req) => {
 
   if (role === "user" && username) {
     return {
-      condition: ` AND LOWER("Doer_Name") = LOWER($1) `,
+      condition: ` AND LOWER(doer_name) = LOWER($1) `,
       params: [username]
     };
   }
@@ -51,25 +51,25 @@ export const getDashboardStats = async (req, res) => {
 
     // Construct cost query safely
     let costQuery = `
-      SELECT COALESCE(SUM("Maintenance_Cost"), 0) AS total_maintenance_cost
+      SELECT COALESCE(SUM(maintenance_cost), 0) AS total_maintenance_cost
       FROM maintenance_task_assign
-      WHERE "Actual_Date" IS NOT NULL
+      WHERE actual_date IS NOT NULL
     `;
     const costParams = [];
     let j = 1;
 
     if (params.startDate && params.endDate) {
-      costQuery += ` AND "Task_Start_Date"::date >= $${j}::date AND "Task_Start_Date"::date <= $${j+1}::date`;
+      costQuery += ` AND task_start_date::date >= $${j}::date AND task_start_date::date <= $${j + 1}::date`;
       costParams.push(params.startDate, params.endDate);
       j += 2;
     }
 
     if (role === "user" && username) {
-      costQuery += ` AND LOWER("Doer_Name") = LOWER($${j})`;
+      costQuery += ` AND LOWER(doer_name) = LOWER($${j})`;
       costParams.push(username);
       j++;
     } else if (staffFilter && staffFilter !== "all" && role === "admin") {
-      costQuery += ` AND LOWER("Doer_Name") = LOWER($${j})`;
+      costQuery += ` AND LOWER(doer_name) = LOWER($${j})`;
       costParams.push(staffFilter);
       j++;
     }
@@ -117,20 +117,20 @@ export const getMaintenanceCostByMachine = async (req, res) => {
 
     let dateCond = "";
     if (startDate && endDate) {
-      dateCond = ` AND "Task_Start_Date"::date >= $${j}::date AND "Task_Start_Date"::date <= $${j+1}::date`;
+      dateCond = ` AND task_start_date::date >= $${j}::date AND task_start_date::date <= $${j + 1}::date`;
       params.push(startDate, endDate);
       j += 2;
     }
 
     const query = `
       SELECT
-        "Serial_No" AS name,
-        SUM("Maintenance_Cost") AS maintenance_cost
+        serial_no AS name,
+        SUM(maintenance_cost) AS maintenance_cost
       FROM maintenance_task_assign
-      WHERE "Actual_Date" IS NOT NULL
+      WHERE actual_date IS NOT NULL
       ${condition}
       ${dateCond}
-      GROUP BY "Serial_No"
+      GROUP BY serial_no
       ORDER BY maintenance_cost DESC;
     `;
 
@@ -163,20 +163,20 @@ export const getDepartmentCostBreakdown = async (req, res) => {
 
     let dateCond = "";
     if (startDate && endDate) {
-      dateCond = ` AND "Task_Start_Date"::date >= $${j}::date AND "Task_Start_Date"::date <= $${j+1}::date`;
+      dateCond = ` AND task_start_date::date >= $${j}::date AND task_start_date::date <= $${j + 1}::date`;
       params.push(startDate, endDate);
       j += 2;
     }
 
     const query = `
       SELECT 
-        "machine_department" AS name, 
-        SUM(COALESCE("Maintenance_Cost", 0)) AS cost
+        machine_department AS name, 
+        SUM(COALESCE(maintenance_cost, 0)) AS cost
       FROM maintenance_task_assign
-      WHERE "Actual_Date" IS NOT NULL
+      WHERE actual_date IS NOT NULL
       ${condition}
       ${dateCond}
-      GROUP BY "machine_department"
+      GROUP BY machine_department
       ORDER BY cost DESC;
     `;
 
@@ -210,20 +210,20 @@ export const getFrequencyStats = async (req, res) => {
 
     let dateCond = "";
     if (startDate && endDate) {
-      dateCond = ` AND "Task_Start_Date"::date >= $${j}::date AND "Task_Start_Date"::date <= $${j+1}::date`;
+      dateCond = ` AND task_start_date::date >= $${j}::date AND task_start_date::date <= $${j + 1}::date`;
       params.push(startDate, endDate);
       j += 2;
     }
 
     const query = `
       SELECT 
-        LOWER("Frequency") AS name, 
+        LOWER(frequency) AS name, 
         COUNT(*) AS repairs
       FROM maintenance_task_assign
-      WHERE "Actual_Date" IS NOT NULL
+      WHERE actual_date IS NOT NULL
       ${condition}
       ${dateCond}
-      GROUP BY LOWER("Frequency");
+      GROUP BY LOWER(frequency);
     `;
 
     const { rows } = await maintenancePool.query(query, params);
@@ -454,15 +454,15 @@ export const getMaintenanceDepartments = async (req, res) => {
     const username = req.query.username;
 
     let whereConditions = [
-      `"doer_department" IS NOT NULL`,
-      `TRIM("doer_department") <> ''`
+      `doer_department IS NOT NULL`,
+      `TRIM(doer_department) <> ''`
     ];
     let queryParams = [];
     let paramIndex = 1;
 
     // Add user filter if role is user
     if (role === "user" && username) {
-      whereConditions.push(`LOWER("Doer_Name") = LOWER($${paramIndex})`);
+      whereConditions.push(`LOWER(doer_name) = LOWER($${paramIndex})`);
       queryParams.push(username);
       paramIndex++;
     }
@@ -470,10 +470,10 @@ export const getMaintenanceDepartments = async (req, res) => {
     const whereClause = `WHERE ${whereConditions.join(" AND ")}`;
 
     const query = `
-      SELECT DISTINCT "doer_department" AS department
+      SELECT DISTINCT doer_department AS department
       FROM maintenance_task_assign
       ${whereClause}
-      ORDER BY "doer_department" ASC
+      ORDER BY doer_department ASC
     `;
 
     const { rows } = await maintenancePool.query(query, queryParams);
@@ -503,22 +503,22 @@ export const getMaintenanceStaffByDepartment = async (req, res) => {
     const username = req.query.username;
 
     let whereConditions = [
-      `"Doer_Name" IS NOT NULL`,
-      `TRIM("Doer_Name") <> ''`
+      `doer_name IS NOT NULL`,
+      `TRIM(doer_name) <> ''`
     ];
     let queryParams = [];
     let paramIndex = 1;
 
     // Add user filter if role is user
     if (role === "user" && username) {
-      whereConditions.push(`LOWER("Doer_Name") = LOWER($${paramIndex})`);
+      whereConditions.push(`LOWER(doer_name) = LOWER($${paramIndex})`);
       queryParams.push(username);
       paramIndex++;
     }
 
     // Add department filter
     if (departmentFilter && departmentFilter !== "all") {
-      whereConditions.push(`LOWER("doer_department") = LOWER($${paramIndex})`);
+      whereConditions.push(`LOWER(doer_department) = LOWER($${paramIndex})`);
       queryParams.push(departmentFilter);
       paramIndex++;
     }
@@ -526,10 +526,10 @@ export const getMaintenanceStaffByDepartment = async (req, res) => {
     const whereClause = `WHERE ${whereConditions.join(" AND ")}`;
 
     const query = `
-      SELECT DISTINCT "Doer_Name" AS name
+      SELECT DISTINCT doer_name AS name
       FROM maintenance_task_assign
       ${whereClause}
-      ORDER BY "Doer_Name" ASC
+      ORDER BY doer_name ASC
     `;
 
     const { rows } = await maintenancePool.query(query, queryParams);

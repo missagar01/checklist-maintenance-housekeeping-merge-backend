@@ -5,27 +5,27 @@ import { maintenancePool } from "../config/db.js";
  * 🟦 COMMON SELECT MAPPING (UI EXPECTS THESE FIELD NAMES)
  ***************************************************************************/
 const MAINTENANCE_SELECT = `
-  "id" AS task_id,
-  "Task_No" AS task_no,
-  "Machine_Name" AS machine_name,
-  "Serial_No" AS serial_no,
-  "Description" AS task_description,
-  "doer_department" AS doer_department,
-  "Task_Type" AS task_type,
-  "Priority" AS priority,
-  "Doer_Name" AS doer_name,
-  "Given_By" AS given_by,
-  "Task_Start_Date" AS scheduled_date,
-  "Actual_Date" AS completed_date,
-  "Task_Status" AS status,
-  "Remarks" AS remarks,
-  "Sound_Status" AS sound_status,         
-  "Temperature_Status" AS temperature_status,
-  "Image_Link" AS image,
-  "File_Name" AS file_name,
-  "File_Type" AS file_type,
-  "created_at" AS created_at,
-  "Maintenance_Cost" AS maintenance_cost
+  id AS task_id,
+  task_no AS task_no,
+  machine_name AS machine_name,
+  serial_no AS serial_no,
+  description AS task_description,
+  doer_department AS doer_department,
+  task_type AS task_type,
+  priority AS priority,
+  doer_name AS doer_name,
+  given_by AS given_by,
+  task_start_date AS scheduled_date,
+  actual_date AS completed_date,
+  task_status AS status,
+  remarks AS remarks,
+  sound_status AS sound_status,         
+  temperature_status AS temperature_status,
+  image_link AS image,
+  file_name AS file_name,
+  file_type AS file_type,
+  created_at AS created_at,
+  maintenance_cost AS maintenance_cost
 `;
 
 /***************************************************************************
@@ -56,56 +56,56 @@ export const getMaintenanceTasks = async (page = 1, limit = 50, filters = {}) =>
 
   if (search) {
     query += ` AND (
-      "Description" ILIKE $${params.length + 1} OR
-      "Machine_Name" ILIKE $${params.length + 1} OR
-      "Serial_No" ILIKE $${params.length + 1} OR
-      "Doer_Name" ILIKE $${params.length + 1}
+      description ILIKE $${params.length + 1} OR
+      machine_name ILIKE $${params.length + 1} OR
+      serial_no ILIKE $${params.length + 1} OR
+      doer_name ILIKE $${params.length + 1}
     )`;
     params.push(`%${search}%`);
   }
 
   if (machineName) {
-    query += ` AND "Machine_Name" = $${params.length + 1}`;
+    query += ` AND machine_name = $${params.length + 1}`;
     params.push(machineName);
   }
 
   if (serialNo) {
-    query += ` AND "Serial_No" = $${params.length + 1}`;
+    query += ` AND serial_no = $${params.length + 1}`;
     params.push(serialNo);
   }
 
   if (task_status) {
-    query += ` AND "Task_Status" = $${params.length + 1}`;
+    query += ` AND task_status = $${params.length + 1}`;
     params.push(task_status);
   }
 
   if (assignedTo) {
-    query += ` AND "Doer_Name" = $${params.length + 1}`;
+    query += ` AND doer_name = $${params.length + 1}`;
     params.push(assignedTo);
   }
 
   if (taskType) {
-    query += ` AND "Task_Type" = $${params.length + 1}`;
+    query += ` AND task_type = $${params.length + 1}`;
     params.push(taskType);
   }
 
   if (priority) {
-    query += ` AND "Priority" = $${params.length + 1}`;
+    query += ` AND priority = $${params.length + 1}`;
     params.push(priority);
   }
 
   if (startDate) {
-    query += ` AND "Task_Start_Date" >= $${params.length + 1}`;
+    query += ` AND task_start_date >= $${params.length + 1}`;
     params.push(startDate);
   }
 
   if (endDate) {
-    query += ` AND "Task_Start_Date" <= $${params.length + 1}`;
+    query += ` AND task_start_date <= $${params.length + 1}`;
     params.push(endDate);
   }
 
   query += `
-    ORDER BY "Priority" ASC
+    ORDER BY priority ASC
     LIMIT $${params.length + 1}
     OFFSET $${params.length + 2}
   `;
@@ -128,28 +128,28 @@ export const getPendingMaintenanceTasks = async (
   let query = `
     SELECT ${MAINTENANCE_SELECT}
     FROM maintenance_task_assign
-    WHERE "Actual_Date" IS NULL
-      AND "Task_Start_Date" <= CURRENT_DATE
-      AND "Task_Status" IS NULL
+    WHERE actual_date IS NULL
+      AND task_start_date <= CURRENT_DATE
+      AND task_status IS NULL
   `;
 
   const params = [];
 
   // Filter by logged-in user
   if (userId) {
-    query += ` AND "Doer_Name" = $${params.length + 1}`;
+    query += ` AND doer_name = $${params.length + 1}`;
     params.push(userId);
   }
 
   query += `
     ORDER BY 
       CASE 
-        WHEN "Priority" = 'High' THEN 1
-        WHEN "Priority" = 'Medium' THEN 2
-        WHEN "Priority" = 'Low' THEN 3
+        WHEN priority = 'High' THEN 1
+        WHEN priority = 'Medium' THEN 2
+        WHEN priority = 'Low' THEN 3
         ELSE 4
       END,
-      "Task_Start_Date" ASC
+      task_start_date ASC
     LIMIT $${params.length + 1}
     OFFSET $${params.length + 2}
   `;
@@ -177,53 +177,53 @@ export const getCompletedMaintenanceTasks = async (
   let query = `
     SELECT ${MAINTENANCE_SELECT}
     FROM maintenance_task_assign
-    WHERE "Actual_Date" IS NOT NULL
+    WHERE actual_date IS NOT NULL
   `;
 
   const params = [];
 
   if (search) {
     query += ` AND (
-      "Description" ILIKE $${params.length + 1} OR
-      "Machine_Name" ILIKE $${params.length + 1} OR
-      "Remarks" ILIKE $${params.length + 1}
+      description ILIKE $${params.length + 1} OR
+      machine_name ILIKE $${params.length + 1} OR
+      remarks ILIKE $${params.length + 1}
     )`;
     params.push(`%${search}%`);
   }
 
   if (machineName) {
-    query += ` AND "Machine_Name" = $${params.length + 1}`;
+    query += ` AND machine_name = $${params.length + 1}`;
     params.push(machineName);
   }
 
   if (serialNo) {
-    query += ` AND "Serial_No" = $${params.length + 1}`;
+    query += ` AND serial_no = $${params.length + 1}`;
     params.push(serialNo);
   }
 
   if (assignedTo) {
-    query += ` AND "Doer_Name" = $${params.length + 1}`;
+    query += ` AND doer_name = $${params.length + 1}`;
     params.push(assignedTo);
   }
 
   if (startDate) {
-    query += ` AND "Actual_Date" >= $${params.length + 1}`;
+    query += ` AND actual_date >= $${params.length + 1}`;
     params.push(startDate);
   }
 
   if (endDate) {
-    query += ` AND "Actual_Date" <= $${params.length + 1}`;
+    query += ` AND actual_date <= $${params.length + 1}`;
     params.push(endDate);
   }
 
   // ✅ USER RESTRICTION FIX
   if (userId) {
-    query += ` AND "Doer_Name" = $${params.length + 1}`;
+    query += ` AND doer_name = $${params.length + 1}`;
     params.push(userId);
   }
 
   query += `
-    ORDER BY "Actual_Date" DESC
+    ORDER BY actual_date DESC
     LIMIT $${params.length + 1}
     OFFSET $${params.length + 2}
   `;
@@ -239,14 +239,14 @@ export const getCompletedMaintenanceTasks = async (
  ***************************************************************************/
 export const updateMaintenanceTask = async (taskId, data) => {
   const fieldMap = {
-    task_status: `"Task_Status"`,
-    remarks: `"Remarks"`,
-    sound_status: `"Sound_Status"`,              // FIXED
-    temperature_status: `"Temperature_Status"`, // FIXED
-    image_link: `"Image_Link"`,
-    file_name: `"File_Name"`,
-    file_type: `"File_Type"`,
-    actual_date: `"Actual_Date"`
+    task_status: `task_status`,
+    remarks: `remarks`,
+    sound_status: `sound_status`,              // FIXED
+    temperature_status: `temperature_status`, // FIXED
+    image_link: `image_link`,
+    file_name: `file_name`,
+    file_type: `file_type`,
+    actual_date: `actual_date`
   };
 
 
@@ -267,8 +267,8 @@ export const updateMaintenanceTask = async (taskId, data) => {
   //   updates.push(`"Actual_Date" = NOW()`);
   // }
 
-  // Always update Actual_Date to today's date
-  updates.push(`"Actual_Date" = NOW()`);
+  // Always update actual_date to today's date
+  updates.push(`actual_date = NOW()`);
 
 
   params.push(taskId);
@@ -276,7 +276,7 @@ export const updateMaintenanceTask = async (taskId, data) => {
   const query = `
     UPDATE maintenance_task_assign
     SET ${updates.join(", ")}
-    WHERE "id" = $${i}
+    WHERE id = $${i}
     RETURNING *
   `;
 
@@ -289,14 +289,14 @@ export const updateMaintenanceTask = async (taskId, data) => {
  ***************************************************************************/
 export const getUniqueMachineNames = async () => {
   const query = `
-    SELECT DISTINCT "Machine_Name"
+    SELECT DISTINCT machine_name
     FROM maintenance_task_assign
-    WHERE "Machine_Name" IS NOT NULL AND "Machine_Name" <> ''
-    ORDER BY "Machine_Name"
+    WHERE machine_name IS NOT NULL AND machine_name <> ''
+    ORDER BY machine_name
   `;
 
   const result = await maintenancePool.query(query);
-  return result.rows.map((r) => r.Machine_Name);
+  return result.rows.map((r) => r.machine_name);
 };
 
 /***************************************************************************
@@ -304,14 +304,14 @@ export const getUniqueMachineNames = async () => {
  ***************************************************************************/
 export const getUniqueAssignedPersonnel = async () => {
   const query = `
-    SELECT DISTINCT "Doer_Name"
+    SELECT DISTINCT doer_name
     FROM maintenance_task_assign
-    WHERE "Doer_Name" IS NOT NULL AND "Doer_Name" <> ''
-    ORDER BY "Doer_Name"
+    WHERE doer_name IS NOT NULL AND doer_name <> ''
+    ORDER BY doer_name
   `;
 
   const result = await maintenancePool.query(query);
-  return result.rows.map((r) => r.Doer_Name);
+  return result.rows.map((r) => r.doer_name);
 };
 
 /***************************************************************************
@@ -321,11 +321,11 @@ export const getMaintenanceStatistics = async () => {
   const query = `
     SELECT 
       COUNT(*) AS total_tasks,
-      COUNT(CASE WHEN "Actual_Date" IS NOT NULL THEN 1 END) AS completed_tasks,
-      COUNT(CASE WHEN "Actual_Date" IS NULL THEN 1 END) AS pending_tasks,
-      COUNT(CASE WHEN "Priority" = 'High' THEN 1 END) AS high_priority,
-      COUNT(CASE WHEN "Priority" = 'Medium' THEN 1 END) AS medium_priority,
-      COUNT(CASE WHEN "Priority" = 'Low' THEN 1 END) AS low_priority
+      COUNT(CASE WHEN actual_date IS NOT NULL THEN 1 END) AS completed_tasks,
+      COUNT(CASE WHEN actual_date IS NULL THEN 1 END) AS pending_tasks,
+      COUNT(CASE WHEN priority = 'High' THEN 1 END) AS high_priority,
+      COUNT(CASE WHEN priority = 'Medium' THEN 1 END) AS medium_priority,
+      COUNT(CASE WHEN priority = 'Low' THEN 1 END) AS low_priority
     FROM maintenance_task_assign
   `;
 
@@ -350,10 +350,10 @@ export const getUniqueMaintenanceDepartments = async () => {
 // Doer Name
 export const getUniqueMaintenanceDoerName = async () => {
   const query = `
-    SELECT DISTINCT "Doer_Name" AS name
+    SELECT DISTINCT doer_name AS name
     FROM maintenance_task_assign
-    WHERE "Doer_Name" IS NOT NULL AND "Doer_Name" <> ''
-    ORDER BY "Doer_Name"
+    WHERE doer_name IS NOT NULL AND doer_name <> ''
+    ORDER BY doer_name
   `;
 
   const result = await maintenancePool.query(query);

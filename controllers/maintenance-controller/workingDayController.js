@@ -9,7 +9,7 @@ export const getWorkingDays = async (req, res) => {
   try {
     const { month, year } = req.query;
 
-    let query = `SELECT id, working_date, day_name, week_num, month_num FROM working_day_calendar`;
+    let query = `SELECT id, working_date, day, week_num, month FROM working_day_calender`;
     const values = [];
 
     if (month && year) {
@@ -39,19 +39,19 @@ export const getWorkingDays = async (req, res) => {
  */
 export const addWorkingDay = async (req, res) => {
   try {
-    const { working_date, day_name, week_num, month_num } = req.body;
+    const { working_date, day, week_num, month } = req.body;
 
-    if (!working_date || !day_name)
+    if (!working_date || !day)
       return res
         .status(400)
-        .json({ success: false, error: "working_date and day_name are required" });
+        .json({ success: false, error: "working_date and day are required" });
 
     const query = `
-      INSERT INTO working_day_calendar (working_date, day_name, week_num, month_num)
+      INSERT INTO working_day_calender (working_date, day, week_num, month)
       VALUES ($1, $2, $3, $4)
       RETURNING *;
     `;
-    const values = [working_date, day_name, week_num, month_num];
+    const values = [working_date, day, week_num, month];
     const result = await maintenancePool.query(query, values);
 
     res.status(201).json({

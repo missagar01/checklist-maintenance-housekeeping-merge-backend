@@ -18,8 +18,8 @@ export const getPendingChecklist = async (req, res) => {
       AND DATE(task_start_date) <= CURRENT_DATE
     `;
 
-    // ⭐ USER FILTER (TRIM FIX APPLIED)
-    if (role !== "admin" && username) {
+    // ⭐ ADMIN ROLE CHECK (CASE-INSENSITIVE) & "TILL TODAY" LOGIC
+    if (role && role.toLowerCase() !== "admin" && username) {
       where += ` AND TRIM(LOWER(name)) = TRIM(LOWER('${username}')) `;
     }
 

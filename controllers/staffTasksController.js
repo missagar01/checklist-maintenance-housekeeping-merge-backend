@@ -162,16 +162,16 @@ export const getStaffTasks = async (req, res) => {
     const maintenanceQuery = `
       WITH base_tasks AS (
           SELECT
-              c."Doer_Name" AS name,
-              c."Task_Status" AS status,
-              c."Task_Start_Date"::date AS task_date,
-              c."Actual_Date"::date AS submission_date_only,
+              c.doer_name AS name,
+              c.task_status AS status,
+              c.task_start_date::date AS task_date,
+              c.actual_date::date AS submission_date_only,
               c.doer_department AS department
           FROM public.maintenance_task_assign c
-          WHERE c."Task_Start_Date"::date >= $1::date
-            AND c."Task_Start_Date"::date <  $2::date
-            AND c."Task_Start_Date"::date <= CURRENT_DATE
-            AND c."Doer_Name" <> 'Sheelesh Marele'
+          WHERE c.task_start_date::date >= $1::date
+            AND c.task_start_date::date <  $2::date
+            AND c.task_start_date::date <= CURRENT_DATE
+            AND c.doer_name <> 'Sheelesh Marele'
             ${maintenanceDeptCondition}
       ),
       summary AS (
@@ -461,16 +461,16 @@ export const exportAllStaffTasks = async (req, res) => {
     const maintenanceQuery = `
       WITH base_tasks AS (
           SELECT
-              c."Doer_Name" AS name,
-              c."Task_Status" AS status,
-              c."Task_Start_Date"::date AS task_date,
-              c."Actual_Date"::date AS submission_date_only,
+              c.doer_name AS name,
+              c.task_status AS status,
+              c.task_start_date::date AS task_date,
+              c.actual_date::date AS submission_date_only,
               c.doer_department AS department
           FROM public.maintenance_task_assign c
-          WHERE c."Task_Start_Date"::date >= $1::date
-            AND c."Task_Start_Date"::date <  $2::date
-            AND c."Task_Start_Date"::date <= CURRENT_DATE
-            AND c."Doer_Name" <> 'Sheelesh Marele'
+          WHERE c.task_start_date::date >= $1::date
+            AND c.task_start_date::date <  $2::date
+            AND c.task_start_date::date <= CURRENT_DATE
+            AND c.doer_name <> 'Sheelesh Marele'
             ${maintenanceDeptCondition}
       ),
       summary AS (
@@ -678,12 +678,12 @@ export const getStaffCount = async (req, res) => {
     `;
 
     const maintenanceCountQuery = `
-      SELECT COUNT(DISTINCT "Doer_Name") as count
+      SELECT COUNT(DISTINCT doer_name) as count
       FROM public.maintenance_task_assign
-      WHERE "Task_Start_Date"::date >= $1::date
-        AND "Task_Start_Date"::date < $2::date
-        AND "Task_Start_Date"::date <= CURRENT_DATE
-        AND "Doer_Name" <> 'Sheelesh Marele'
+      WHERE task_start_date::date >= $1::date
+        AND task_start_date::date < $2::date
+        AND task_start_date::date <= CURRENT_DATE
+        AND doer_name <> 'Sheelesh Marele'
         ${deptCondition.replace('department', 'doer_department')}
     `;
 

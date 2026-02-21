@@ -115,12 +115,12 @@ const markChecklistTasksNotDone = async (employeeIds, targetDate, submissionTime
     `
       UPDATE maintenance_task_assign
       SET
-        "Task_Status" = 'No',
-        "Actual_Date" = $3
-      WHERE LOWER("Doer_Name") = ANY($1::text[])
-        AND "Task_Start_Date"::date = $2::date
-        AND "Actual_Date" IS NULL
-        AND "Task_Status" IS NULL
+        task_status = 'No',
+        actual_date = $3
+      WHERE LOWER(doer_name) = ANY($1::text[])
+        AND task_start_date::date = $2::date
+        AND actual_date IS NULL
+        AND task_status IS NULL
     `,
     [normalizedNames, targetDate, submissionTime]
   );
@@ -165,16 +165,16 @@ export const markAllOverdueTasksAsNotDone = async () => {
       [targetDateStr, submissionTime]
     );
 
-    // 2. Update Maintenance Tasks (Overdue = Task_Start_Date < today AND Actual_Date IS NULL)
+    // 2. Update Maintenance Tasks (Overdue = task_start_date < today AND actual_date IS NULL)
     const maintenanceResult = await maintenancePool.query(
       `
         UPDATE maintenance_task_assign
         SET
-          "Task_Status" = 'No',
-          "Actual_Date" = $2
-        WHERE "Task_Start_Date"::date < $1::date
-          AND "Actual_Date" IS NULL
-          AND "Task_Status" IS NULL
+          task_status = 'No',
+          actual_date = $2
+        WHERE task_start_date::date < $1::date
+          AND actual_date IS NULL
+          AND task_status IS NULL
       `,
       [targetDateStr, submissionTime]
     );
