@@ -613,6 +613,11 @@ const assignTaskController = {
         payload.doer_name2 = String(doerName2Value);
       }
 
+      const hodValue = body.hod || req.query.hod;
+      if (hodValue !== undefined && hodValue !== null) {
+        payload.hod = hodValue;
+      }
+
       logger.info({ taskId, payload }, 'Confirming housekeeping task');
       const updated = await assignTaskService.update(taskId, payload);
       if (!updated) {
