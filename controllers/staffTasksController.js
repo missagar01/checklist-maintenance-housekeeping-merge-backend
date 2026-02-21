@@ -711,6 +711,7 @@ export const getUsersCount = async (req, res) => {
     const result = await pool.query(`
       SELECT COUNT(*) FROM users
       WHERE user_name IS NOT NULL AND user_name != ''
+      AND LOWER(role::text) = 'user'
     `);
     res.json(Number(result.rows[0].count));
   } catch (err) {

@@ -646,6 +646,7 @@ export const getTotalUsersCountService = async () => {
       FROM users
       WHERE user_name IS NOT NULL
         AND TRIM(user_name) <> ''
+        AND LOWER(role::text) = 'user'
     `;
     const { rows } = await pool.query(query);
     return Number(rows[0]?.count || 0);
