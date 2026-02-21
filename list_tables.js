@@ -17,26 +17,18 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false },
 });
 
-async function inspect() {
+async function listTables() {
     try {
         const client = await pool.connect();
 
-        console.log("--- TABLE COLUMNS for assign_task ---");
+        console.log("--- ALL TABLES ---");
         const res = await client.query(`
-      SELECT column_name, data_type, column_default, is_nullable
-      FROM information_schema.columns
-      WHERE table_name = 'assign_task'
-      ORDER BY ordinal_position;
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+      ORDER BY table_name;
     `);
         console.table(res.rows);
-
-        console.log("--- CONSTRAINTS for assign_task ---");
-        const res2 = await client.query(`
-      SELECT conname, contype, pg_get_constraintdef(oid)
-      FROM pg_constraint
-      WHERE conrelid = 'assign_task'::regclass;
-    `);
-        console.table(res2.rows);
 
         client.release();
     } catch (err) {
@@ -47,4 +39,4 @@ async function inspect() {
     }
 }
 
-inspect();
+listTables();

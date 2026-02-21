@@ -10,7 +10,7 @@ const assignTaskSchema = z.object({
   image: z.string().optional(),
   attachment: z.string().optional(),
   doer_name2: z.string().optional(),
-  hod: z.union([z.string(), z.array(z.string())]).optional(),
+  hod: z.union([z.string(), z.array(z.string())]).nullable().optional(),
   frequency: z.string().optional(),
   // Accept raw date/time strings; DB will store as DATE, delay uses JS Date parsing.
   task_start_date: z.string().min(1, 'task_start_date is required'),

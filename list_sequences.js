@@ -17,26 +17,19 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false },
 });
 
-async function inspect() {
+async function listSequences() {
     try {
         const client = await pool.connect();
 
-        console.log("--- TABLE COLUMNS for assign_task ---");
+        console.log("--- ALL SEQUENCES ---");
         const res = await client.query(`
-      SELECT column_name, data_type, column_default, is_nullable
-      FROM information_schema.columns
-      WHERE table_name = 'assign_task'
-      ORDER BY ordinal_position;
+      SELECT n.nspname as schema_name, c.relname as sequence_name
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'S'
+      ORDER BY n.nspname, c.relname;
     `);
         console.table(res.rows);
-
-        console.log("--- CONSTRAINTS for assign_task ---");
-        const res2 = await client.query(`
-      SELECT conname, contype, pg_get_constraintdef(oid)
-      FROM pg_constraint
-      WHERE conrelid = 'assign_task'::regclass;
-    `);
-        console.table(res2.rows);
 
         client.release();
     } catch (err) {
@@ -47,4 +40,4 @@ async function inspect() {
     }
 }
 
-inspect();
+listSequences();
