@@ -150,7 +150,7 @@ class AssignTaskService {
     }));
 
     return this.bulkCreate(tasks);
-  } 
+  }
 
   update(id, input) {
     const payload = { ...input };
@@ -365,10 +365,9 @@ class AssignTaskService {
   }
 
   async historyWithTotal(options = {}) {
-    const cutoff = new Date();
-    cutoff.setHours(23, 59, 59, 999); // include up to today
-    const items = await assignTaskRepository.findHistory(cutoff, options);
-    const total = await assignTaskRepository.countHistory(cutoff, options);
+    // Pass null as cutoff so findHistory/countHistory default to current month filter
+    const items = await assignTaskRepository.findHistory(null, options);
+    const total = await assignTaskRepository.countHistory(null, options);
     return { items, total };
   }
 

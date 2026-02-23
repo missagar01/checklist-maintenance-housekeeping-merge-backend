@@ -94,7 +94,7 @@ export const getCompletedMaintenanceTasksController = async (req, res) => {
     // ✅ IMPORTANT LINE
     const userId = req.query.userId || null;
 
-    const tasks = await getCompletedMaintenanceTasks(
+    const { tasks, totalCount } = await getCompletedMaintenanceTasks(
       page,
       limit,
       filters,
@@ -104,6 +104,7 @@ export const getCompletedMaintenanceTasksController = async (req, res) => {
     res.status(200).json({
       success: true,
       data: tasks,
+      totalCount,
       page,
       limit,
       hasMore: tasks.length === limit

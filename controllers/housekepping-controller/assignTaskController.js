@@ -542,10 +542,15 @@ const assignTaskController = {
       const effectiveOffset = page && limit ? (page - 1) * limit : offset;
       const department = resolveDepartment(req);
 
+      // ✅ USER RESTRICTION FIX (Admins see all, users see their own)
+      const isAdmin = (req.user?.role?.toLowerCase().includes("admin")) || (req.user?.username?.toLowerCase() === "admin");
+      const assignedTo = isAdmin ? req.query.assignedTo : req.user?.username;
+
       const { items, total } = await assignTaskService.historyWithTotal({
         limit,
         offset: effectiveOffset,
         department,
+        assignedTo,
         startDate: req.query.startDate,
         endDate: req.query.endDate
       });

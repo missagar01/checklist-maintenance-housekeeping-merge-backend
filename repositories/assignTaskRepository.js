@@ -472,10 +472,13 @@ class AssignTaskRepository {
 
     if (options.startDate && options.endDate) {
       params.push(options.startDate, options.endDate);
-      sql += ` AND task_start_date::date >= $${params.length - 1}::date AND task_start_date::date <= $${params.length}::date`;
+      sql += ` AND submission_date::date >= $${params.length - 1}::date AND submission_date::date <= $${params.length}::date`;
+    } else if (!cutoff) {
+      // ⭐ Default to current month based on completion (submission_date)
+      sql += ` AND submission_date >= DATE_TRUNC('month', CURRENT_DATE) `;
     } else {
       params.push(cutoff);
-      sql += ` AND task_start_date <= $${params.length}`;
+      sql += ` AND submission_date <= $${params.length}`;
     }
 
     if (options.department) {
@@ -570,10 +573,13 @@ class AssignTaskRepository {
 
     if (options.startDate && options.endDate) {
       params.push(options.startDate, options.endDate);
-      sql += ` AND task_start_date::date >= $${params.length - 1}::date AND task_start_date::date <= $${params.length}::date`;
+      sql += ` AND submission_date::date >= $${params.length - 1}::date AND submission_date::date <= $${params.length}::date`;
+    } else if (!cutoff) {
+      // ⭐ Default to current month based on completion (submission_date)
+      sql += ` AND submission_date >= DATE_TRUNC('month', CURRENT_DATE) `;
     } else {
       params.push(cutoff);
-      sql += ` AND task_start_date <= $${params.length}`;
+      sql += ` AND submission_date <= $${params.length}`;
     }
 
     if (options.department) {

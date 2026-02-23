@@ -14,7 +14,7 @@ import {
   updateDepartment,
   deleteDepartment,
   patchSystemAccess,
-  patchVerifyAccess , 
+  patchVerifyAccess,
   patchVerifyAccessDept
 } from "../controllers/settingController.js";
 

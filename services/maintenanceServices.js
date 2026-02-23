@@ -175,12 +175,17 @@ export const getCompletedMaintenanceTasks = async (
   const { search = "", machineName = "", serialNo = "", assignedTo = "", startDate = "", endDate = "" } = filters;
 
   let query = `
-    SELECT ${MAINTENANCE_SELECT}
+    SELECT ${MAINTENANCE_SELECT}, COUNT(*) OVER() AS total_count
     FROM maintenance_task_assign
     WHERE actual_date IS NOT NULL
   `;
 
   const params = [];
+
+  // ⭐ Default to current month based on completion (actual_date)
+  if (!startDate && !endDate) {
+    query += ` AND actual_date >= DATE_TRUNC('month', CURRENT_DATE) `;
+  }
 
   if (search) {
     query += ` AND (
@@ -216,9 +221,9 @@ export const getCompletedMaintenanceTasks = async (
     params.push(endDate);
   }
 
-  // ✅ USER RESTRICTION FIX
+  // ✅ USER RESTRICTION FIX (Case-insensitive)
   if (userId) {
-    query += ` AND doer_name = $${params.length + 1}`;
+    query += ` AND LOWER(doer_name) = LOWER($${params.length + 1})`;
     params.push(userId);
   }
 
@@ -231,7 +236,12 @@ export const getCompletedMaintenanceTasks = async (
   params.push(limit, offset);
 
   const result = await maintenancePool.query(query, params);
-  return result.rows;
+
+  const totalCount = result.rows.length > 0 ? parseInt(result.rows[0].total_count) : 0;
+  return {
+    tasks: result.rows,
+    totalCount
+  };
 };
 
 /***************************************************************************

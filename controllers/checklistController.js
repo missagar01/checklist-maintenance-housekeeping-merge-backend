@@ -13,14 +13,18 @@ export const getPendingChecklist = async (req, res) => {
     const limit = 50;
     const offset = (page - 1) * limit;
 
-    let where = `
-      submission_date IS NULL
-      AND DATE(task_start_date) <= CURRENT_DATE
-    `;
+    let where = `submission_date IS NULL`;
 
-    // ⭐ ADMIN ROLE CHECK (CASE-INSENSITIVE) & "TILL TODAY" LOGIC
-    if (role && role.toLowerCase() !== "admin" && username) {
-      where += ` AND TRIM(LOWER(name)) = TRIM(LOWER('${username}')) `;
+    // ⭐ ADMIN ROLE CHECK (CASE-INSENSITIVE)
+    if ((role && role.toLowerCase().includes("admin")) || (username && username.toLowerCase() === "admin")) {
+      // Admin sees strictly today's unsubmitted tasks in the Pending tab for all users
+      where = `submission_date IS NULL AND DATE(task_start_date) = CURRENT_DATE`;
+    } else {
+      // Normal users see only their own tasks that they haven't submitted yet, and only those scheduled till today
+      where = `submission_date IS NULL AND DATE(task_start_date) <= CURRENT_DATE `;
+      if (username) {
+        where += ` AND TRIM(LOWER(name)) = TRIM(LOWER('${username}')) `;
+      }
     }
 
     const query = `
@@ -58,15 +62,32 @@ export const getChecklistHistory = async (req, res) => {
     const limit = 50;
     const offset = (page - 1) * limit;
 
+    const params = [];
     let where = `submission_date IS NOT NULL`;
 
-    // ⭐ Normal users see only their own tasks or department tasks
-    if (role !== "admin" && username) {
+    // ⭐ Default to current month based on completion (submission_date)
+    if (!req.query.startDate && !req.query.endDate) {
+      where += ` AND submission_date >= DATE_TRUNC('month', CURRENT_DATE) `;
+    } else {
+      if (req.query.startDate) {
+        params.push(req.query.startDate);
+        where += ` AND submission_date::date >= $${params.length}::date `;
+      }
+      if (req.query.endDate) {
+        params.push(req.query.endDate);
+        where += ` AND submission_date::date <= $${params.length}::date `;
+      }
+    }
+
+    // ⭐ Standardized Admin Check
+    const isAdmin = (role && role.toLowerCase().includes("admin")) || (username && username.toLowerCase() === "admin");
+
+    if (!isAdmin && username) {
       if (departments.length > 0) {
         const deptArray = departments.map(d => `'${d.toLowerCase()}'`).join(',');
-        where += ` AND (LOWER(name) = LOWER('${username}') OR LOWER(department) = ANY(ARRAY[${deptArray}])) `;
+        where += ` AND (LOWER(TRIM(name)) = LOWER(TRIM('${username}')) OR LOWER(department) = ANY(ARRAY[${deptArray}])) `;
       } else {
-        where += ` AND LOWER(name) = LOWER('${username}') `;
+        where += ` AND LOWER(TRIM(name)) = LOWER(TRIM('${username}')) `;
       }
     }
 
@@ -76,12 +97,12 @@ export const getChecklistHistory = async (req, res) => {
       FROM checklist
       WHERE ${where}
       ORDER BY submission_date DESC
-      LIMIT $1 OFFSET $2
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
 
-    const { rows } = await pool.query(query, [limit, offset]);
+    const { rows } = await pool.query(query, [...params, limit, offset]);
 
-    const totalCount = rows.length > 0 ? rows[0].total_count : 0;
+    const totalCount = rows.length > 0 ? parseInt(rows[0].total_count, 10) || 0 : 0;
 
     res.json({
       data: rows,
