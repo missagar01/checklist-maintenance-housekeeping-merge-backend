@@ -42,12 +42,12 @@ const getMonthDateRange = (monthYear = "") => {
 export const getStaffTasks = async (req, res) => {
   try {
     const {
-      dashboardType = "checklist",
       staffFilter = "all",
       page = 1,
       limit = 50,
       monthYear = "",
-      departmentFilter = "all"
+      departmentFilter = "all",
+      search = ""
     } = req.query;
 
     const pageNumber = Math.max(Number(page) || 1, 1);
@@ -59,15 +59,12 @@ export const getStaffTasks = async (req, res) => {
       const range = getMonthDateRange(monthYear);
       if (range) {
         startDate = range.start;
-        // User query is < EndDate (Exclusive). 
-        // Helper returns "2026-01-31". To make it exclusive for whole month, we want < "2026-02-01".
         const e = new Date(range.end);
         e.setDate(e.getDate() + 1);
         endDate = `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, '0')}-${String(e.getDate()).padStart(2, '0')}`;
       }
     }
 
-    // Default to Current Month if no range provided
     if (!startDate) {
       const now = new Date();
       startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
@@ -75,269 +72,121 @@ export const getStaffTasks = async (req, res) => {
       endDate = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`;
     }
 
-
-    // 2. Checklist Query with Department Filter
-    const checklistDeptCondition = departmentFilter !== "all"
-      ? `AND c.department = $3`
-      : '';
-
-    const checklistQuery = `
-      WITH base_tasks AS (
-          SELECT
-              c.name AS name,
-              u.employee_id,
-              c.status AS status,
-              c.task_start_date::date AS task_date,
-              c.submission_date::date AS submission_date_only,
-              c.department AS department
-          FROM public.checklist c
-          LEFT JOIN public.users u
-              ON c.name = u.user_name
-          WHERE c.task_start_date::date >= $1::date
-            AND c.task_start_date::date <  $2::date
-            AND c.task_start_date::date < CURRENT_DATE
-            AND c.name <> 'Sheelesh Marele'
-            ${checklistDeptCondition}
-      ),
-      summary AS (
-          SELECT
-              department,
-              name AS doer,
-              employee_id,
-              COUNT(*) AS total_tasks,
-              COUNT(*) FILTER (WHERE lower(status::text) = 'yes') AS total_completed_tasks,
-              COUNT(*) FILTER (
-                  WHERE lower(status::text) = 'yes'
-                    AND submission_date_only <= task_date
-              ) AS total_done_on_time
-          FROM base_tasks
-          GROUP BY department, name, employee_id
-      ),
-      scores AS (
-          SELECT
-              department,
-              doer,
-              employee_id,
-              total_tasks,
-              total_completed_tasks,
-              total_done_on_time,
-              GREATEST(
-                  COALESCE(
-                      ROUND((total_completed_tasks::numeric / NULLIF(total_tasks,0)) * 100 - 100, 2),
-                      0
-                  ),
-                  -100
-              ) AS completion_score,
-              GREATEST(
-                  COALESCE(
-                      ROUND((total_done_on_time::numeric / NULLIF(total_completed_tasks,0)) * 100 - 100, 2),
-                      0
-                  ),
-                  -100
-              ) AS ontime_score
-          FROM summary
-      )
-      SELECT
-          department,
-          doer,
-          employee_id,
-          total_tasks,
-          total_completed_tasks,
-          total_done_on_time,
-          completion_score,
-          ontime_score,
-          GREATEST(
-              ROUND(COALESCE(completion_score,0) + COALESCE(ontime_score,0), 2),
-              -100
-          ) AS total_score
-      FROM scores
+    // 2. Build User Base Query
+    const userParams = [];
+    let userQuery = `
+      SELECT 
+          u.user_name AS name,
+          u.employee_id,
+          u.department,
+          u.email_id AS email
+      FROM public.users u
+      WHERE LOWER(u.role::text) = 'user'
+        AND u.user_name IS NOT NULL
+        AND u.user_name <> 'Sheelesh Marele'
     `;
 
+    if (departmentFilter !== "all") {
+      userParams.push(departmentFilter);
+      userQuery += ` AND u.department = $${userParams.length}`;
+    }
 
-    // 3. Maintenance Query with Department Filter
-    const maintenanceDeptCondition = departmentFilter !== "all"
-      ? `AND c.doer_department = $3`
-      : '';
+    if (search && search.trim()) {
+      userParams.push(`%${search.trim().toLowerCase()}%`);
+      userQuery += ` AND (LOWER(u.user_name) LIKE $${userParams.length} 
+                   OR LOWER(u.employee_id) LIKE $${userParams.length} 
+                   OR LOWER(u.department) LIKE $${userParams.length})`;
+    }
 
-    const maintenanceQuery = `
-      WITH base_tasks AS (
-          SELECT
-              c.doer_name AS name,
-              c.task_status AS status,
-              c.task_start_date::date AS task_date,
-              c.actual_date::date AS submission_date_only,
-              c.doer_department AS department
-          FROM public.maintenance_task_assign c
-          WHERE c.task_start_date::date >= $1::date
-            AND c.task_start_date::date <  $2::date
-            AND c.task_start_date::date <= CURRENT_DATE
-            AND c.doer_name <> 'Sheelesh Marele'
-            ${maintenanceDeptCondition}
-      ),
-      summary AS (
-          SELECT
-              department,
-              name AS doer,
-              COUNT(*) AS total_tasks,
-              COUNT(*) FILTER (WHERE lower(status::text) = 'yes') AS total_completed_tasks,
-              COUNT(*) FILTER (
-                  WHERE lower(status::text) = 'yes'
-                    AND submission_date_only <= task_date
-              ) AS total_done_on_time
-          FROM base_tasks
-          GROUP BY department, name
-      ),
-      scores AS (
-          SELECT
-              department,
-              doer,
-              total_tasks,
-              total_completed_tasks,
-              total_done_on_time,
-              GREATEST(
-                  COALESCE(
-                      ROUND((total_completed_tasks::numeric / NULLIF(total_tasks,0)) * 100 - 100, 2),
-                      0
-                  ),
-                  -100
-              ) AS completion_score,
-              GREATEST(
-                  COALESCE(
-                      ROUND((total_done_on_time::numeric / NULLIF(total_completed_tasks,0)) * 100 - 100, 2),
-                      0
-                  ),
-                  -100
-              ) AS ontime_score
-          FROM summary
-      )
+    if (staffFilter !== "all") {
+      userParams.push(staffFilter);
+      userQuery += ` AND u.user_name = $${userParams.length}`;
+    }
+
+    const usersRes = await pool.query(userQuery, userParams);
+    const allUsers = usersRes.rows;
+
+    if (allUsers.length === 0) {
+      return res.json([]);
+    }
+
+    // 3. Fetch Task Summaries
+    const checklistSummaryQuery = `
       SELECT
-          department,
-          doer,
-          total_tasks,
-          total_completed_tasks,
-          total_done_on_time,
-          completion_score,
-          ontime_score,
-          GREATEST(
-              ROUND(COALESCE(completion_score,0) + COALESCE(ontime_score,0), 2),
-              -100
-          ) AS total_score
-      FROM scores
+          c.name,
+          COUNT(*) AS total_tasks,
+          COUNT(*) FILTER (WHERE lower(c.status::text) = 'yes') AS total_completed_tasks,
+          COUNT(*) FILTER (
+              WHERE lower(c.status::text) = 'yes'
+                AND c.submission_date::date <= c.task_start_date::date
+          ) AS total_done_on_time
+      FROM public.checklist c
+      WHERE c.task_start_date::date >= $1::date
+        AND c.task_start_date::date <  $2::date
+        AND c.task_start_date::date < CURRENT_DATE
+      GROUP BY c.name
     `;
 
+    const maintenanceSummaryQuery = `
+      SELECT
+          c.doer_name AS name,
+          COUNT(*) AS total_tasks,
+          COUNT(*) FILTER (WHERE lower(c.task_status::text) = 'yes') AS total_completed_tasks,
+          COUNT(*) FILTER (
+              WHERE lower(c.task_status::text) = 'yes'
+                AND c.actual_date::date <= c.task_start_date::date
+          ) AS total_done_on_time
+      FROM public.maintenance_task_assign c
+      WHERE c.task_start_date::date >= $1::date
+        AND c.task_start_date::date <  $2::date
+        AND c.task_start_date::date <= CURRENT_DATE
+      GROUP BY c.doer_name
+    `;
 
-    // 4. Execution
-    // Note: maintenancePool is needed if they are different DBs.
-    // Based on imports, maintenancePool exists.
-    let checklistRows = [];
-    let maintenanceRows = [];
+    const [chkRes, mntRes] = await Promise.all([
+      pool.query(checklistSummaryQuery, [startDate, endDate]),
+      maintenancePool.query(maintenanceSummaryQuery, [startDate, endDate])
+    ]);
 
-    // Prepare query parameters based on department filter
-    const queryParams = departmentFilter !== "all"
-      ? [startDate, endDate, departmentFilter]
-      : [startDate, endDate];
+    const chkMap = new Map(chkRes.rows.map(r => [r.name?.toLowerCase(), r]));
+    const mntMap = new Map(mntRes.rows.map(r => [r.name?.toLowerCase(), r]));
 
-    try {
-      const cRes = await pool.query(checklistQuery, queryParams);
-      checklistRows = cRes.rows;
-    } catch (e) {
-      console.error("Checklist Query Error:", e.message);
-    }
+    // 4. Merge and Paginate
+    const mergedData = allUsers.map(user => {
+      const nameKey = user.name?.toLowerCase();
+      const chk = chkMap.get(nameKey) || { total_tasks: 0, total_completed_tasks: 0, total_done_on_time: 0 };
+      const mnt = mntMap.get(nameKey) || { total_tasks: 0, total_completed_tasks: 0, total_done_on_time: 0 };
 
-    try {
-      const mRes = await maintenancePool.query(maintenanceQuery, queryParams);
-      maintenanceRows = mRes.rows;
-    } catch (e) {
-      console.error("Maintenance Query Error:", e.message);
-    }
+      const totalTasks = Number(chk.total_tasks) + Number(mnt.total_tasks);
+      const completedTasks = Number(chk.total_completed_tasks) + Number(mnt.total_completed_tasks);
+      const doneOnTime = Number(chk.total_done_on_time) + Number(mnt.total_done_on_time);
 
+      const completionScore = totalTasks > 0 ? Math.max(Math.round((completedTasks * 100) / totalTasks - 100), -100) : 0;
+      const ontimeScore = completedTasks > 0 ? Math.max(Math.round((doneOnTime * 100) / completedTasks - 100), -100) : 0;
+      const totalScore = Math.max(completionScore + ontimeScore, -100);
 
-    // 5. Merging Logic
-    const staffMap = new Map();
+      return {
+        id: nameKey.replace(/\s+/g, "-"),
+        name: user.name,
+        employee_id: user.employee_id,
+        email: user.email || `${nameKey.replace(/\s+/g, ".")}@example.com`,
+        department: user.department,
+        totalTasks,
+        completedTasks,
+        doneOnTime,
+        completion_score: completionScore,
+        ontime_score: ontimeScore,
+        totalScore,
+        pendingTasks: totalTasks - completedTasks,
+        onTimeScore: totalScore
+      };
+    });
 
-    const processRow = (row, type) => {
-      const name = row.doer?.trim();
-      if (!name) return;
-      const key = name.toLowerCase();
+    mergedData.sort((a, b) => a.name.localeCompare(b.name));
+    const totalCount = mergedData.length;
+    const paginatedData = mergedData.slice((pageNumber - 1) * limitNumber, pageNumber * limitNumber);
 
-      if (!staffMap.has(key)) {
-        staffMap.set(key, {
-          id: key.replace(/\s+/g, "-"),
-          name: name,
-          employee_id: row.employee_id || null, // Preserve employee_id
-          email: `${key.replace(/\s+/g, ".")}@example.com`,
-          department: row.department,
-          totalTasks: 0,
-          completedTasks: 0,
-          doneOnTime: 0,
-          totalScore: 0,
-          completion_score: 0,
-          ontime_score: 0,
-          // Debug info
-          checklistScore: 0,
-          maintenanceScore: 0
-        });
-      }
-
-      const staff = staffMap.get(key);
-
-      // Update employee_id if found in this row
-      if (row.employee_id && !staff.employee_id) {
-        staff.employee_id = row.employee_id;
-      }
-
-      staff.totalTasks += Number(row.total_tasks || 0);
-      staff.completedTasks += Number(row.total_completed_tasks || 0);
-      staff.doneOnTime += Number(row.total_done_on_time || 0);
-
-      // Store individual scores
-      const completionScore = Number(row.completion_score || 0);
-      const ontimeScore = Number(row.ontime_score || 0);
-      const totalScore = Number(row.total_score || 0);
-
-      staff.totalScore += totalScore;
-
-      if (type === 'checklist') {
-        staff.checklistScore = totalScore;
-        staff.completion_score += completionScore;
-        staff.ontime_score += ontimeScore;
-      }
-      if (type === 'maintenance') {
-        staff.maintenanceScore = totalScore;
-        staff.completion_score += completionScore;
-        staff.ontime_score += ontimeScore;
-      }
-    };
-
-    checklistRows.forEach(r => processRow(r, 'checklist'));
-    maintenanceRows.forEach(r => processRow(r, 'maintenance'));
-
-    let finalData = Array.from(staffMap.values());
-
-    // 6. Filtering (Staff Filter)
-    if (staffFilter && staffFilter !== "all") {
-      finalData = finalData.filter(
-        (s) => s.name.toLowerCase() === staffFilter.toLowerCase()
-      );
-    }
-
-    // 7. Sorting (Default by Name)
-    finalData.sort((a, b) => a.name.localeCompare(b.name));
-
-    // 8. Pagination (In Memory)
-    const totalCount = finalData.length;
-    const offset = (pageNumber - 1) * limitNumber;
-    const paginatedData = finalData.slice(offset, offset + limitNumber);
-
-    // Map to final format EXPECTED by frontend
-    const mappedData = paginatedData.map(s => ({
-      ...s,
-      pendingTasks: s.totalTasks - s.completedTasks,
-      onTimeScore: Number(s.totalScore.toFixed(2)), // Frontend expects "onTimeScore"
-      total_count: totalCount // Include total count in response
-    }));
-
-    return res.json(mappedData);
+    return res.json(paginatedData.map(d => ({ ...d, total_count: totalCount })));
 
   } catch (err) {
     console.error("🔥 STAFF TASKS ERROR →", err);
@@ -643,66 +492,33 @@ export const exportAllStaffTasks = async (req, res) => {
 
 export const getStaffCount = async (req, res) => {
   try {
-    const { monthYear, departmentFilter = "all" } = req.query;
-    let startDate, endDate;
+    const { departmentFilter = "all", search = "" } = req.query;
 
-    if (monthYear) {
-      const range = getMonthDateRange(monthYear);
-      if (range) {
-        startDate = range.start;
-        const e = new Date(range.end);
-        e.setDate(e.getDate() + 1);
-        endDate = e.toISOString().split('T')[0];
-      }
-    }
-
-    if (!startDate) {
-      const now = new Date();
-      startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      endDate = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`;
-    }
-
-    // Get distinct count from both tables
-    const deptCondition = departmentFilter !== "all" ? "AND department = $3" : "";
-    const params = departmentFilter !== "all" ? [startDate, endDate, departmentFilter] : [startDate, endDate];
-
-    const checklistCountQuery = `
-      SELECT COUNT(DISTINCT c.name) as count
-      FROM public.checklist c
-      WHERE c.task_start_date::date >= $1::date
-        AND c.task_start_date::date < $2::date
-        AND c.task_start_date::date < CURRENT_DATE
-        AND c.name <> 'Sheelesh Marele'
-        ${deptCondition}
+    let query = `
+      SELECT COUNT(*) FROM users
+      WHERE user_name IS NOT NULL AND user_name != ''
+      AND LOWER(role::text) = 'user'
+      AND user_name <> 'Sheelesh Marele'
     `;
 
-    const maintenanceCountQuery = `
-      SELECT COUNT(DISTINCT doer_name) as count
-      FROM public.maintenance_task_assign
-      WHERE task_start_date::date >= $1::date
-        AND task_start_date::date < $2::date
-        AND task_start_date::date <= CURRENT_DATE
-        AND doer_name <> 'Sheelesh Marele'
-        ${deptCondition.replace('department', 'doer_department')}
-    `;
+    const params = [];
+    if (departmentFilter !== "all") {
+      params.push(departmentFilter);
+      query += ` AND department = $${params.length}`;
+    }
 
-    const [checklistRes, maintenanceRes] = await Promise.all([
-      pool.query(checklistCountQuery, params),
-      maintenancePool.query(maintenanceCountQuery, params)
-    ]);
+    if (search && search.trim()) {
+      params.push(`%${search.trim().toLowerCase()}%`);
+      query += ` AND (LOWER(user_name) LIKE $${params.length} 
+                 OR LOWER(employee_id) LIKE $${params.length} 
+                 OR LOWER(department) LIKE $${params.length})`;
+    }
 
-    // Get unique names from both
-    const checklistCount = Number(checklistRes.rows[0]?.count || 0);
-    const maintenanceCount = Number(maintenanceRes.rows[0]?.count || 0);
-
-    // Approximate total (may have some overlap)
-    const totalCount = checklistCount + maintenanceCount;
-
-    return res.json(totalCount);
-  } catch (e) {
-    console.error("Count Error:", e);
-    return res.json(0);
+    const result = await pool.query(query, params);
+    return res.json(Number(result.rows[0].count));
+  } catch (err) {
+    console.error("Error in getStaffCount:", err);
+    res.status(500).json({ error: "Error fetching total users count" });
   }
 };
 

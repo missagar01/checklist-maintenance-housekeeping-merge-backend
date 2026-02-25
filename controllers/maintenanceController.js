@@ -59,10 +59,12 @@ export const getPendingMaintenanceTasksController = async (req, res) => {
     const userId = req.query.userId || null;
 
     const tasks = await getPendingMaintenanceTasks(page, limit, userId);
+    const totalCount = tasks.length > 0 ? parseInt(tasks[0].total_count) : 0;
 
     res.status(200).json({
       success: true,
       data: tasks,
+      totalCount,
       page,
       limit,
       hasMore: tasks.length === limit

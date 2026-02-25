@@ -126,7 +126,7 @@ export const getPendingMaintenanceTasks = async (
   const offset = (page - 1) * limit;
 
   let query = `
-    SELECT ${MAINTENANCE_SELECT}
+    SELECT ${MAINTENANCE_SELECT}, COUNT(*) OVER() AS total_count
     FROM maintenance_task_assign
     WHERE actual_date IS NULL
       AND task_start_date <= CURRENT_DATE
