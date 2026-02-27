@@ -1,7 +1,7 @@
 import { pool, maintenancePool } from "../config/db.js";
 import { query as housekeepingQuery } from "../config/housekeppingdb.js";
 import { refreshDeviceSync } from "../services/deviceSync.js";
-import { getUniqueDepartmentsService } from "../services/dashboardServices.js";
+import { getUniqueDepartmentsService, getDivisionWiseTaskCountsService } from "../services/dashboardServices.js";
 
 const now = new Date();
 const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -1472,4 +1472,21 @@ export const getNotDoneTaskList = async (req, res) => {
     return res.status(500).json({ error: "Error fetching not done task list" });
   }
 };
+
+export const getDivisionWiseTaskCounts = async (req, res) => {
+  try {
+    const { startDate, endDate, role, username } = req.query;
+    const counts = await getDivisionWiseTaskCountsService({
+      startDate,
+      endDate,
+      role,
+      username
+    });
+    res.json(counts);
+  } catch (err) {
+    console.error("DIVISION WISE COUNTS ERROR:", err.message);
+    res.status(500).json({ error: "Error fetching division-wise task counts" });
+  }
+};
+
 

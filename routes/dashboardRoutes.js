@@ -17,7 +17,8 @@ import {
   getChecklistDateRangeCount,
   getStaffTaskSummary,
   getNotDoneTask,
-  getNotDoneTaskList
+  getNotDoneTaskList,
+  getDivisionWiseTaskCounts
 } from "../controllers/dashboardController.js";
 
 const router = express.Router();
@@ -47,5 +48,7 @@ router.get("/checklist/date-range", getChecklistByDateRange);
 router.get("/checklist/date-range/stats", getChecklistStatsByDate);
 router.get("/checklist/date-range/count", getChecklistDateRangeCount);
 router.get("/count", getDashboardDataCount);
+router.get("/division-wise-counts", getDivisionWiseTaskCounts);
+
 
 export default router;

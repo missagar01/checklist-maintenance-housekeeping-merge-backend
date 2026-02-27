@@ -20,27 +20,15 @@ const pool = new Pool({
 async function inspect() {
     try {
         const client = await pool.connect();
-
         const tables = ['assign_task', 'checklist', 'maintenance_task_assign'];
         for (const table of tables) {
-            console.log(`--- TABLE COLUMNS for ${table} ---`);
             const res = await client.query(`
-          SELECT column_name, data_type, column_default, is_nullable
-          FROM information_schema.columns
-          WHERE table_name = '${table}'
-          ORDER BY ordinal_position;
-        `);
-            console.table(res.rows);
-
-            console.log(`--- CONSTRAINTS for ${table} ---`);
-            const res2 = await client.query(`
-          SELECT conname, contype, pg_get_constraintdef(oid)
-          FROM pg_constraint
-          WHERE conrelid = '${table}'::regclass;
-        `);
-            console.table(res2.rows);
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = '${table}'
+            `);
+            console.log(`${table} columns:`, res.rows.map(r => r.column_name));
         }
-
         client.release();
     } catch (err) {
         console.error(err);
@@ -49,5 +37,4 @@ async function inspect() {
         process.exit(0);
     }
 }
-
 inspect();

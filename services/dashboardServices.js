@@ -1,4 +1,6 @@
-import { pool } from "../config/db.js";
+import { pool, maintenancePool } from "../config/db.js";
+import { pool as housekeepingPool } from "../config/housekeppingdb.js";
+
 
 const getTableName = (dashboardType) =>
   dashboardType === "delegation" ? "delegation" : "checklist";
@@ -919,6 +921,135 @@ export const fetchChecklistDateRangeStatsService = async ({
       completionRate,
       dateRange: { startDate, endDate },
     };
+  } catch (error) {
+    throw new Error(error.message);
+  }
+};
+
+// ─────────────────────────────────────────────
+// DIVISION-WISE TASK COUNTS
+// ─────────────────────────────────────────────
+export const getDivisionWiseTaskCountsService = async ({
+  startDate = null,
+  endDate = null,
+  role = "admin",
+  username = null,
+}) => {
+  try {
+    const { date: todayDate, start: todayStart, end: todayEnd } = getToday();
+    
+    // Default to start of month to TODAY (to match dashboard 'Total' card)
+    let effectiveStart = startDate ? dayStart(startDate) : null;
+    let effectiveEnd = endDate ? dayEnd(endDate) : todayEnd;
+
+    if (!startDate && !endDate) {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      const firstDay = new Date(y, m, 1);
+      
+      const fY = firstDay.getFullYear();
+      const fM = String(firstDay.getMonth() + 1).padStart(2, '0');
+      const fD = String(firstDay.getDate()).padStart(2, '0');
+
+      effectiveStart = dayStart(`${fY}-${fM}-${fD}`);
+      // effectiveEnd remains todayEnd
+    }
+
+    // We also need the end of the month for the 'Future' tasks to match manual queries if needed
+    // But the user specifically asked to match the static cards which stop at 'today' for Total.
+    // However, they also want a Future card. So we MUST include the full month in the query.
+    let queryEnd = effectiveEnd;
+    if (!endDate) {
+       const now = new Date();
+       const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+       queryEnd = dayEnd(`${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`);
+    }
+
+    // We'll fetch from both pools and combine
+    const fetchFromTable = async (poolToUse, tableName, isMaintenance = false) => {
+      let conditions = [];
+      let params = [];
+      let i = 1;
+
+      // Use queryEnd to get all tasks for the month (so we can see Future)
+      conditions.push(`task_start_date BETWEEN $${i} AND $${i + 1}`);
+      params.push(effectiveStart, queryEnd);
+      i += 2;
+
+      const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+      const deptColumn = tableName === 'assign_task' ? "doer_department" : (isMaintenance ? "COALESCE(doer_department, machine_department)" : "department");
+
+      const query = `
+        SELECT 
+          division,
+          ${deptColumn} as department,
+          COUNT(*) as total,
+          COUNT(CASE WHEN ${tableName === 'checklist' ? "LOWER(status::text) = 'yes'" : tableName === 'maintenance_task_assign' ? "LOWER(task_status::text) = 'yes'" : "LOWER(status::text) = 'yes'"} THEN 1 END) as completed,
+          COUNT(CASE WHEN ${tableName === 'maintenance_task_assign' ? "LOWER(task_status::text) = 'no'" : "LOWER(status::text) = 'no'"} THEN 1 END) as not_done,
+          COUNT(CASE WHEN task_start_date::date = '${todayDate}' AND ${tableName === 'maintenance_task_assign' ? "actual_date IS NULL" : "submission_date IS NULL"} THEN 1 END) as pending,
+          COUNT(CASE WHEN task_start_date::date > '${todayDate}' AND ${tableName === 'maintenance_task_assign' ? "actual_date IS NULL" : "submission_date IS NULL"} THEN 1 END) as future,
+          COUNT(CASE WHEN task_start_date::date < '${todayDate}' AND ${tableName === 'maintenance_task_assign' ? "actual_date IS NULL" : "submission_date IS NULL"} THEN 1 END) as overdue
+        FROM ${tableName}
+        ${where}
+        GROUP BY division, ${deptColumn}
+      `;
+
+      const { rows } = await poolToUse.query(query, params);
+      return rows;
+    };
+
+    const [checklistRows, housekeepingRows, maintenanceRows] = await Promise.all([
+      fetchFromTable(pool, 'checklist'),
+      fetchFromTable(housekeepingPool, 'assign_task'),
+      fetchFromTable(maintenancePool, 'maintenance_task_assign', true)
+    ]);
+
+    const aggregate = {};
+
+    const processRows = (rows, sourceKey) => {
+      rows.forEach(row => {
+        const div = row.division || 'Unassigned';
+        const dept = row.department || 'Unassigned';
+
+        if (!aggregate[div]) {
+          aggregate[div] = { 
+            total: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
+            completed: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
+            pending: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
+            future: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
+            notDone: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
+            overdue: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} }
+          };
+        }
+        
+        const updateMetric = (metric, count) => {
+          const val = parseInt(count || 0);
+          aggregate[div][metric].count += val;
+          aggregate[div][metric].breakdown[sourceKey] += val;
+          
+          if (!aggregate[div][metric].departments[dept]) {
+            aggregate[div][metric].departments[dept] = { total: 0, checklist: 0, housekeeping: 0, maintenance: 0 };
+          }
+          aggregate[div][metric].departments[dept].total += val;
+          aggregate[div][metric].departments[dept][sourceKey] += val;
+        };
+
+        updateMetric('total', row.total);
+        updateMetric('completed', row.completed);
+        updateMetric('pending', row.pending);
+        updateMetric('future', row.future);
+        updateMetric('notDone', row.not_done);
+        updateMetric('overdue', row.overdue);
+      });
+    };
+
+    processRows(checklistRows, 'checklist');
+    processRows(housekeepingRows, 'housekeeping');
+    processRows(maintenanceRows, 'maintenance');
+
+    return aggregate;
   } catch (error) {
     throw new Error(error.message);
   }
