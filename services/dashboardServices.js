@@ -937,7 +937,7 @@ export const getDivisionWiseTaskCountsService = async ({
 }) => {
   try {
     const { date: todayDate, start: todayStart, end: todayEnd } = getToday();
-    
+
     // Default to start of month to TODAY (to match dashboard 'Total' card)
     let effectiveStart = startDate ? dayStart(startDate) : null;
     let effectiveEnd = endDate ? dayEnd(endDate) : todayEnd;
@@ -947,7 +947,7 @@ export const getDivisionWiseTaskCountsService = async ({
       const y = now.getFullYear();
       const m = now.getMonth();
       const firstDay = new Date(y, m, 1);
-      
+
       const fY = firstDay.getFullYear();
       const fM = String(firstDay.getMonth() + 1).padStart(2, '0');
       const fD = String(firstDay.getDate()).padStart(2, '0');
@@ -961,9 +961,9 @@ export const getDivisionWiseTaskCountsService = async ({
     // However, they also want a Future card. So we MUST include the full month in the query.
     let queryEnd = effectiveEnd;
     if (!endDate) {
-       const now = new Date();
-       const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-       queryEnd = dayEnd(`${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`);
+      const now = new Date();
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      queryEnd = dayEnd(`${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`);
     }
 
     // We'll fetch from both pools and combine
@@ -987,6 +987,7 @@ export const getDivisionWiseTaskCountsService = async ({
           ${deptColumn} as department,
           COUNT(*) as total,
           COUNT(CASE WHEN ${tableName === 'checklist' ? "LOWER(status::text) = 'yes'" : tableName === 'maintenance_task_assign' ? "LOWER(task_status::text) = 'yes'" : "LOWER(status::text) = 'yes'"} THEN 1 END) as completed,
+          COUNT(CASE WHEN ${tableName === 'checklist' ? "LOWER(status::text) = 'yes' AND submission_date::date <= task_start_date::date" : tableName === 'maintenance_task_assign' ? "LOWER(task_status::text) = 'yes' AND actual_date::date <= task_start_date::date" : "LOWER(status::text) = 'yes' AND submission_date::date <= task_start_date::date"} THEN 1 END) as done_on_time,
           COUNT(CASE WHEN ${tableName === 'maintenance_task_assign' ? "LOWER(task_status::text) = 'no'" : "LOWER(status::text) = 'no'"} THEN 1 END) as not_done,
           COUNT(CASE WHEN task_start_date::date = '${todayDate}' AND ${tableName === 'maintenance_task_assign' ? "actual_date IS NULL" : "submission_date IS NULL"} THEN 1 END) as pending,
           COUNT(CASE WHEN task_start_date::date > '${todayDate}' AND ${tableName === 'maintenance_task_assign' ? "actual_date IS NULL" : "submission_date IS NULL"} THEN 1 END) as future,
@@ -1014,21 +1015,22 @@ export const getDivisionWiseTaskCountsService = async ({
         const dept = row.department || 'Unassigned';
 
         if (!aggregate[div]) {
-          aggregate[div] = { 
+          aggregate[div] = {
             total: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
             completed: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
+            done_on_time: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
             pending: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
             future: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
             notDone: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} },
             overdue: { count: 0, breakdown: { checklist: 0, housekeeping: 0, maintenance: 0 }, departments: {} }
           };
         }
-        
+
         const updateMetric = (metric, count) => {
           const val = parseInt(count || 0);
           aggregate[div][metric].count += val;
           aggregate[div][metric].breakdown[sourceKey] += val;
-          
+
           if (!aggregate[div][metric].departments[dept]) {
             aggregate[div][metric].departments[dept] = { total: 0, checklist: 0, housekeeping: 0, maintenance: 0 };
           }
@@ -1038,6 +1040,7 @@ export const getDivisionWiseTaskCountsService = async ({
 
         updateMetric('total', row.total);
         updateMetric('completed', row.completed);
+        updateMetric('done_on_time', row.done_on_time);
         updateMetric('pending', row.pending);
         updateMetric('future', row.future);
         updateMetric('notDone', row.not_done);
