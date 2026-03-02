@@ -182,10 +182,10 @@ export const getCompletedMaintenanceTasks = async (
 
   const params = [];
 
-  // ⭐ Default to current month based on completion (actual_date)
-  if (!startDate && !endDate) {
-    query += ` AND actual_date >= DATE_TRUNC('month', CURRENT_DATE) `;
-  }
+  // ⭐ Default to current month based on completion (actual_date) - removed to fetch all history
+  // if (!startDate && !endDate) {
+  //   query += ` AND actual_date >= DATE_TRUNC('month', CURRENT_DATE) `;
+  // }
 
   if (search) {
     query += ` AND (
