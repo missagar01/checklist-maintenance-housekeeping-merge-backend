@@ -336,7 +336,7 @@ class AssignTaskRepository {
       }
     }
 
-    sql += ' ORDER BY task_start_date ASC';
+    sql += ' ORDER BY task_start_date DESC NULLS LAST, id DESC';
 
     const hasLimit = Number.isInteger(options.limit) && options.limit > 0;
     const hasOffset = Number.isInteger(options.offset) && options.offset > 0;
@@ -964,7 +964,7 @@ class AssignTaskRepository {
       }
     }
 
-    sql += ' ORDER BY id ASC';
+    sql += ' ORDER BY task_start_date DESC NULLS LAST, id DESC';
 
     const hasLimit = Number.isInteger(options.limit) && options.limit > 0;
     const hasOffset = Number.isInteger(options.offset) && options.offset > 0;

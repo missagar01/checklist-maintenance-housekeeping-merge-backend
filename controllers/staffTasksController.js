@@ -88,7 +88,7 @@ export const getStaffTasks = async (req, res) => {
 
     if (departmentFilter !== "all") {
       userParams.push(departmentFilter);
-      userQuery += ` AND u.department = $${userParams.length}`;
+      userQuery += ` AND LOWER(u.department) = LOWER($${userParams.length})`;
     }
 
     if (search && search.trim()) {
@@ -100,13 +100,24 @@ export const getStaffTasks = async (req, res) => {
 
     if (staffFilter !== "all") {
       userParams.push(staffFilter);
-      userQuery += ` AND u.user_name = $${userParams.length}`;
+      userQuery += ` AND LOWER(u.user_name) = LOWER($${userParams.length})`;
     }
+
+    // Add ORDER BY for predictable pagination
+    userQuery += ` ORDER BY u.user_name ASC`;
 
     const usersRes = await pool.query(userQuery, userParams);
     const allUsers = usersRes.rows;
 
     if (allUsers.length === 0) {
+      return res.json([]);
+    }
+
+    // Apply pagination properly using memory slice
+    const startIndex = (pageNumber - 1) * limitNumber;
+    const paginatedUsers = allUsers.slice(startIndex, startIndex + limitNumber);
+
+    if (paginatedUsers.length === 0) {
       return res.json([]);
     }
 
@@ -152,7 +163,7 @@ export const getStaffTasks = async (req, res) => {
     const mntMap = new Map(mntRes.rows.map(r => [r.name?.toLowerCase(), r]));
 
     // 4. Merge and Paginate
-    const mergedData = allUsers.map(user => {
+    const mergedData = paginatedUsers.map(user => {
       const nameKey = user.name?.toLowerCase();
       const chk = chkMap.get(nameKey) || { total_tasks: 0, total_completed_tasks: 0, total_done_on_time: 0 };
       const mnt = mntMap.get(nameKey) || { total_tasks: 0, total_completed_tasks: 0, total_done_on_time: 0 };
@@ -228,7 +239,7 @@ export const exportAllStaffTasks = async (req, res) => {
 
     // 2. Use same queries as getStaffTasks
     const checklistDeptCondition = departmentFilter !== "all"
-      ? `AND c.department = $3`
+      ? `AND LOWER(c.department) = LOWER($3)`
       : '';
 
     const checklistQuery = `
@@ -304,7 +315,7 @@ export const exportAllStaffTasks = async (req, res) => {
     `;
 
     const maintenanceDeptCondition = departmentFilter !== "all"
-      ? `AND c.doer_department = $3`
+      ? `AND LOWER(c.doer_department) = LOWER($3)`
       : '';
 
     const maintenanceQuery = `
@@ -504,7 +515,7 @@ export const getStaffCount = async (req, res) => {
     const params = [];
     if (departmentFilter !== "all") {
       params.push(departmentFilter);
-      query += ` AND department = $${params.length}`;
+      query += ` AND LOWER(department) = LOWER($${params.length})`;
     }
 
     if (search && search.trim()) {

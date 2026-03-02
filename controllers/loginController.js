@@ -14,7 +14,7 @@ export const loginUserController = async (req, res) => {
 
     // Query PostgreSQL - Include system_access and user_access1
     const query = `
-      SELECT id, user_name, password, role, status, email_id, user_access, user_access1, page_access, system_access , verify_access , verify_access_dept
+      SELECT id, user_name, password, role, status, email_id, user_access, user_access1, page_access, system_access , verify_access , verify_access_dept, designation, division
       FROM users 
       WHERE user_name = $1 AND password = $2
       LIMIT 1
@@ -53,6 +53,8 @@ export const loginUserController = async (req, res) => {
       system_access: user.system_access || "", // Return system_access,
       verify_access: user.verify_access || "",// Return verify_access
       verify_access_dept: user.verify_access_dept || "",// Return verify_access_dept
+      designation: user.designation || "",
+      division: user.division || "",
     });
 
   } catch (err) {

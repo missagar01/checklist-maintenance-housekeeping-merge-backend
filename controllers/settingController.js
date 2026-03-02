@@ -67,7 +67,9 @@ export const createUser = async (req, res) => {
       user_access,
       user_access1,
       system_access,
-      page_access
+      page_access,
+      division,
+      designation
     } = req.body;
 
     // Prepare values array with proper null handling
@@ -84,15 +86,17 @@ export const createUser = async (req, res) => {
       employee_id || null,
       user_access1 || null,
       system_access || null,
-      page_access || null
+      page_access || null,
+      division || null,
+      designation || null
     ];
 
     const query = `
       INSERT INTO users (
         user_name, password, email_id, number, department,
-        given_by, role, status, user_access, employee_id, user_access1, system_access, page_access
+        given_by, role, status, user_access, employee_id, user_access1, system_access, page_access, division, designation
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *
     `;
 
@@ -185,6 +189,8 @@ export const updateUser = async (req, res) => {
       user_access1: "user_access1",
       system_access: "system_access",
       page_access: "page_access",
+      division: "division",
+      designation: "designation",
       remark: "remark",
       leave_date: "leave_date",
       leave_end_date: "leave_end_date"
@@ -202,6 +208,8 @@ export const updateUser = async (req, res) => {
       user_access1: { maxLength: 100000 },
       system_access: { maxLength: 500 },
       page_access: { maxLength: 500 },
+      division: { maxLength: 500 },
+      designation: { maxLength: 500 },
       remark: { maxLength: 1000 },
       employee_id: { maxLength: 500 },
       leave_date: {},
@@ -422,12 +430,12 @@ export const createDepartment = async (req, res) => {
   } catch (error) {
     console.error("❌ Error creating dept:", error);
     console.error("Error details:", error.message);
-    
+
     // Handle specific database errors
     if (error.code === '23505') { // Unique constraint violation
       return res.status(409).json({ error: "Department already exists" });
     }
-    
+
     res.status(500).json({ error: "Database error", details: error.message });
   }
 };

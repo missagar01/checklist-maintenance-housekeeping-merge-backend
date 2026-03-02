@@ -21,8 +21,6 @@ export const fetchChecklist = async (
       params.push(`${startDate} 00:00:00`);
       filters.push(`task_start_date <= $${paramIndex++}`);
       params.push(`${endDate} 23:59:59`);
-    } else {
-      filters.push("task_start_date::date = CURRENT_DATE");
     }
 
     if (nameFilter) {
@@ -32,11 +30,12 @@ export const fetchChecklist = async (
 
     const whereClause = filters.join(" AND ");
 
+    // Using DISTINCT ON to get exactly one record per name/task_description
     const dataQuery = `
-      SELECT *
+      SELECT DISTINCT ON (LOWER(name), LOWER(task_description)) *
       FROM checklist
       WHERE ${whereClause}
-      ORDER BY task_start_date ASC
+      ORDER BY LOWER(name), LOWER(task_description), task_start_date ASC
       LIMIT $${paramIndex++}
       OFFSET $${paramIndex}
     `;
@@ -44,7 +43,7 @@ export const fetchChecklist = async (
     const dataParams = [...params, pageSize, offset];
 
     const countQuery = `
-      SELECT COUNT(*) AS count
+      SELECT COUNT(DISTINCT (LOWER(name), LOWER(task_description))) AS count
       FROM checklist
       WHERE ${whereClause}
     `;
@@ -57,7 +56,7 @@ export const fetchChecklist = async (
     const total = parseInt(countRes.rows[0]?.count ?? 0, 10);
     return { data: dataRes.rows, total };
   } catch (err) {
-    console.log(err);
+    console.log("Error in fetchChecklist:", err);
     return { data: [], total: 0 };
   }
 };
@@ -82,9 +81,6 @@ export const fetchDelegation = async (
       params.push(`${startDate} 00:00:00`);
       filters.push(`task_start_date <= $${paramIndex++}`);
       params.push(`${endDate} 23:59:59`);
-    } else {
-      // Default to today's tasks when no explicit range is provided
-      filters.push("task_start_date::date = CURRENT_DATE");
     }
 
     if (nameFilter) {
@@ -94,11 +90,12 @@ export const fetchDelegation = async (
 
     const whereClause = filters.join(" AND ");
 
+    // Using DISTINCT ON to get exactly one record per name/task_description
     const dataQuery = `
-      SELECT *
+      SELECT DISTINCT ON (LOWER(name), LOWER(task_description)) *
       FROM delegation
       WHERE ${whereClause}
-      ORDER BY task_start_date ASC
+      ORDER BY LOWER(name), LOWER(task_description), task_start_date ASC
       LIMIT $${paramIndex++}
       OFFSET $${paramIndex}
     `;
@@ -106,7 +103,7 @@ export const fetchDelegation = async (
     const dataParams = [...params, pageSize, offset];
 
     const countQuery = `
-      SELECT COUNT(*) AS count
+      SELECT COUNT(DISTINCT (LOWER(name), LOWER(task_description))) AS count
       FROM delegation
       WHERE ${whereClause}
     `;
@@ -119,7 +116,7 @@ export const fetchDelegation = async (
     const total = parseInt(countRes.rows[0]?.count ?? 0, 10);
     return { data: dataRes.rows, total };
   } catch (err) {
-    console.log(err);
+    console.log("Error in fetchDelegation:", err);
     return { data: [], total: 0 };
   }
 };

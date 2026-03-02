@@ -504,18 +504,33 @@ export const fetchStaffTasksDataService = async ({
 
         const totalTasks = tasks.length;
         let completedTasks = 0;
+        let doneOnTime = 0;
 
         tasks.forEach((task) => {
+          const taskDate = new Date(task.task_start_date).getTime();
+
           if (dashboardType === "checklist") {
-            if (task.status === "Yes") completedTasks++;
+            if (task.status === "Yes") {
+              completedTasks++;
+              if (task.submission_date && new Date(task.submission_date).getTime() <= taskDate) {
+                doneOnTime++;
+              }
+            }
           } else {
-            if (task.status === "done") completedTasks++;
+            if (task.status === "done") {
+              completedTasks++;
+              if (task.submission_date && new Date(task.submission_date).getTime() <= taskDate) {
+                doneOnTime++;
+              }
+            }
           }
         });
 
         const pendingTasks = totalTasks - completedTasks;
         const progress =
           totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+        const onTimeScore =
+          completedTasks > 0 ? Math.max(Math.round((doneOnTime * 100) / completedTasks - 100), -100) : 0;
 
         return {
           id: staffName.replace(/\s+/g, "-").toLowerCase(),
@@ -523,8 +538,10 @@ export const fetchStaffTasksDataService = async ({
           email: `${staffName.toLowerCase().replace(/\s+/g, ".")}@example.com`,
           totalTasks,
           completedTasks,
+          doneOnTime,
           pendingTasks,
           progress,
+          onTimeScore
         };
       })
     );
@@ -985,12 +1002,12 @@ export const getDivisionWiseTaskCountsService = async ({
         SELECT 
           division,
           ${deptColumn} as department,
-          COUNT(*) as total,
+          COUNT(CASE WHEN task_start_date::date <= '${endDate ? endDate : todayDate}'::date THEN 1 END) as total,
           COUNT(CASE WHEN ${tableName === 'checklist' ? "LOWER(status::text) = 'yes'" : tableName === 'maintenance_task_assign' ? "LOWER(task_status::text) = 'yes'" : "LOWER(status::text) = 'yes'"} THEN 1 END) as completed,
           COUNT(CASE WHEN ${tableName === 'checklist' ? "LOWER(status::text) = 'yes' AND submission_date::date <= task_start_date::date" : tableName === 'maintenance_task_assign' ? "LOWER(task_status::text) = 'yes' AND actual_date::date <= task_start_date::date" : "LOWER(status::text) = 'yes' AND submission_date::date <= task_start_date::date"} THEN 1 END) as done_on_time,
           COUNT(CASE WHEN ${tableName === 'maintenance_task_assign' ? "LOWER(task_status::text) = 'no'" : "LOWER(status::text) = 'no'"} THEN 1 END) as not_done,
           COUNT(CASE WHEN task_start_date::date = '${todayDate}' AND ${tableName === 'maintenance_task_assign' ? "actual_date IS NULL" : "submission_date IS NULL"} THEN 1 END) as pending,
-          COUNT(CASE WHEN task_start_date::date > '${todayDate}' AND ${tableName === 'maintenance_task_assign' ? "actual_date IS NULL" : "submission_date IS NULL"} THEN 1 END) as future,
+          COUNT(CASE WHEN task_start_date::date = (date '${todayDate}' + integer '1') AND ${tableName === 'maintenance_task_assign' ? "actual_date IS NULL" : "submission_date IS NULL"} THEN 1 END) as future,
           COUNT(CASE WHEN task_start_date::date < '${todayDate}' AND ${tableName === 'maintenance_task_assign' ? "actual_date IS NULL" : "submission_date IS NULL"} THEN 1 END) as overdue
         FROM ${tableName}
         ${where}
@@ -1051,6 +1068,41 @@ export const getDivisionWiseTaskCountsService = async ({
     processRows(checklistRows, 'checklist');
     processRows(housekeepingRows, 'housekeeping');
     processRows(maintenanceRows, 'maintenance');
+
+    // Calculate department scores exactly as requested
+    Object.keys(aggregate).forEach(div => {
+      const divisionData = aggregate[div];
+
+      Object.keys(divisionData.total.departments).forEach(dept => {
+        const totalTasks = divisionData.total.departments[dept].total || 0;
+        const completedTasks = divisionData.completed.departments[dept]?.total || 0;
+        const doneOnTime = divisionData.done_on_time.departments[dept]?.total || 0;
+
+        let completionScore = 0;
+        let ontimeScore = 0;
+
+        if (totalTasks > 0) {
+          completionScore = Math.max(Number((((completedTasks / totalTasks) * 100) - 100).toFixed(2)), -100);
+        } else {
+          completionScore = 0;
+        }
+
+        if (completedTasks > 0) {
+          ontimeScore = Math.max(Number((((doneOnTime / completedTasks) * 100) - 100).toFixed(2)), -100);
+        } else {
+          ontimeScore = 0;
+        }
+
+        const totalScore = Math.max(Math.round(completionScore + ontimeScore), -100);
+
+        // Append scores directly to the total section of the department
+        divisionData.total.departments[dept].scores = {
+          completion_score: completionScore,
+          ontime_score: ontimeScore,
+          total_score: totalScore
+        };
+      });
+    });
 
     return aggregate;
   } catch (error) {
