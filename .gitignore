@@ -48,3 +48,5 @@ temp/
 # TypeScript build output
 *.tsbuildinfo
 
+# Misc
+package-lock.json
