@@ -16,7 +16,8 @@ const assignTaskSchema = z.object({
   task_start_date: z.string().min(1, 'task_start_date is required'),
   submission_date: z.string().optional(),
   delay: z.number().int().optional(),
-  remainder: z.string().optional()
+  remainder: z.string().optional(),
+  division: z.string().optional()
 });
 
 const updateAssignTaskSchema = assignTaskSchema.partial();

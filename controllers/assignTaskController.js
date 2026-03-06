@@ -36,6 +36,22 @@ export const getUniqueDepartments = async (req, res) => {
   }
 };
 
+// 1.5️⃣ Divisions
+export const getUniqueDivisions = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT division
+      FROM users
+      WHERE division IS NOT NULL
+      ORDER BY division ASC
+    `);
+    res.json(result.rows.map(r => r.division));
+  } catch (e) {
+    console.error(e);
+    res.status(500).send("Server Error");
+  }
+};
+
 // 2️⃣ Given By
 export const getUniqueGivenBy = async (req, res) => {
   try {
@@ -111,8 +127,8 @@ export const postAssignTasks = async (req, res) => {
 
       tasks.forEach((t, i) => {
         values.push(
-          `($${i * 11 + 1}, $${i * 11 + 2}, $${i * 11 + 3}, $${i * 11 + 4}, $${i * 11 + 5},
-            $${i * 11 + 6}, $${i * 11 + 7}, $${i * 11 + 8}, $${i * 11 + 9}, $${i * 11 + 10}, $${i * 11 + 11})`
+          `($${i * 12 + 1}, $${i * 12 + 2}, $${i * 12 + 3}, $${i * 12 + 4}, $${i * 12 + 5},
+            $${i * 12 + 6}, $${i * 12 + 7}, $${i * 12 + 8}, $${i * 12 + 9}, $${i * 12 + 10}, $${i * 12 + 11}, $${i * 12 + 12})`
         );
         params.push(
           t.department,
@@ -125,14 +141,15 @@ export const postAssignTasks = async (req, res) => {
           null,
           null,
           t.dueDate,
-          imageUrl            // <-- NEW
+          imageUrl,           // <-- NEW
+          t.division          // <-- NEW DIVISION
         );
       });
 
       await pool.query(
         `INSERT INTO delegation 
         (department, given_by, name, task_description, frequency,
-         enable_reminder, require_attachment, planned_date, status, task_start_date, image)
+         enable_reminder, require_attachment, planned_date, status, task_start_date, image, division)
         VALUES ${values.join(",")}`,
         params
       );
@@ -147,9 +164,9 @@ export const postAssignTasks = async (req, res) => {
         const startDate = t.taskStartDate || t.startDate || t.dueDate;
 
         values.push(
-          `($${i * 14 + 1}, $${i * 14 + 2}, $${i * 14 + 3}, $${i * 14 + 4}, $${i * 14 + 5},
-      $${i * 14 + 6}, $${i * 14 + 7}, $${i * 14 + 8}, $${i * 14 + 9},
-      $${i * 14 + 10}, $${i * 14 + 11}, $${i * 14 + 12}, $${i * 14 + 13}, $${i * 14 + 14})`
+          `($${i * 15 + 1}, $${i * 15 + 2}, $${i * 15 + 3}, $${i * 15 + 4}, $${i * 15 + 5},
+      $${i * 15 + 6}, $${i * 15 + 7}, $${i * 15 + 8}, $${i * 15 + 9},
+      $${i * 15 + 10}, $${i * 15 + 11}, $${i * 15 + 12}, $${i * 15 + 13}, $${i * 15 + 14}, $${i * 15 + 15})`
         );
 
         params.push(
@@ -166,7 +183,8 @@ export const postAssignTasks = async (req, res) => {
           null,                          // 11 admin_done
           startDate,                     // 12 planned_date
           startDate,                     // 13 task_start_date 🔥 FIXED
-          null                           // 14 submission_date
+          null,                          // 14 submission_date
+          t.division                     // 15 division 🔥 NEW
         );
       });
 
@@ -175,7 +193,7 @@ export const postAssignTasks = async (req, res) => {
         `INSERT INTO checklist 
         (department, given_by, name, task_description, enable_reminder,
          require_attachment, frequency, remark, status, image, admin_done,
-         planned_date, task_start_date, submission_date)
+         planned_date, task_start_date, submission_date, division)
         VALUES ${values.join(",")}`,
         params
       );

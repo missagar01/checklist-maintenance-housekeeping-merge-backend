@@ -72,6 +72,7 @@ export const createMaintenanceTask = async (req, res) => {
       priority: body.priority,
       machine_department: body.machine_department,
       doer_department: body.doer_department,
+      division: body.division,
     };
 
     const inserted = await insertMaintenanceTask(taskData);
@@ -136,6 +137,7 @@ export const bulkCreateMaintenanceTasks = async (req, res) => {
       priority: body.priority,
       machine_department: body.machine_department,
       doer_department: body.doer_department,
+      division: body.division,
     }));
 
     const insertedTasks = await bulkInsertMaintenanceTasks(tasksToInsert);

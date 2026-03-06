@@ -1,4 +1,5 @@
 import { pool, maintenancePool } from "../config/db.js";
+import { query as housekeepingQuery } from "../config/housekeppingdb.js";
 
 const TABLE_NAME_MAP = {
   checklist: "public.checklist",
@@ -134,7 +135,7 @@ export const getStaffTasks = async (req, res) => {
       FROM public.checklist c
       WHERE c.task_start_date::date >= $1::date
         AND c.task_start_date::date <  $2::date
-        AND c.task_start_date::date < CURRENT_DATE
+        AND c.task_start_date::date <= CURRENT_DATE
       GROUP BY c.name
     `;
 
@@ -154,23 +155,42 @@ export const getStaffTasks = async (req, res) => {
       GROUP BY c.doer_name
     `;
 
-    const [chkRes, mntRes] = await Promise.all([
+    const housekeepingSummaryQuery = `
+      SELECT
+          c.name,
+          COUNT(*) AS total_tasks,
+          COUNT(*) FILTER (WHERE lower(c.status::text) = 'yes') AS total_completed_tasks,
+          COUNT(*) FILTER (
+              WHERE lower(c.status::text) = 'yes'
+                AND c.submission_date::date <= c.task_start_date::date
+          ) AS total_done_on_time
+      FROM public.assign_task c
+      WHERE c.task_start_date::date >= $1::date
+        AND c.task_start_date::date <  $2::date
+        AND c.task_start_date::date <= CURRENT_DATE
+      GROUP BY c.name
+    `;
+
+    const [chkRes, mntRes, hkRes] = await Promise.all([
       pool.query(checklistSummaryQuery, [startDate, endDate]),
-      maintenancePool.query(maintenanceSummaryQuery, [startDate, endDate])
+      maintenancePool.query(maintenanceSummaryQuery, [startDate, endDate]),
+      housekeepingQuery(housekeepingSummaryQuery, [startDate, endDate])
     ]);
 
     const chkMap = new Map(chkRes.rows.map(r => [r.name?.toLowerCase(), r]));
     const mntMap = new Map(mntRes.rows.map(r => [r.name?.toLowerCase(), r]));
+    const hkMap = new Map(hkRes.rows.map(r => [r.name?.toLowerCase(), r]));
 
     // 4. Merge and Paginate
     const mergedData = paginatedUsers.map(user => {
       const nameKey = user.name?.toLowerCase();
       const chk = chkMap.get(nameKey) || { total_tasks: 0, total_completed_tasks: 0, total_done_on_time: 0 };
       const mnt = mntMap.get(nameKey) || { total_tasks: 0, total_completed_tasks: 0, total_done_on_time: 0 };
+      const hk = hkMap.get(nameKey) || { total_tasks: 0, total_completed_tasks: 0, total_done_on_time: 0 };
 
-      const totalTasks = Number(chk.total_tasks) + Number(mnt.total_tasks);
-      const completedTasks = Number(chk.total_completed_tasks) + Number(mnt.total_completed_tasks);
-      const doneOnTime = Number(chk.total_done_on_time) + Number(mnt.total_done_on_time);
+      const totalTasks = Number(chk.total_tasks) + Number(mnt.total_tasks) + Number(hk.total_tasks);
+      const completedTasks = Number(chk.total_completed_tasks) + Number(mnt.total_completed_tasks) + Number(hk.total_completed_tasks);
+      const doneOnTime = Number(chk.total_done_on_time) + Number(mnt.total_done_on_time) + Number(hk.total_done_on_time);
 
       const completionScore = totalTasks > 0 ? Math.max(Math.round((completedTasks * 100) / totalTasks - 100), -100) : 0;
       const ontimeScore = completedTasks > 0 ? Math.max(Math.round((doneOnTime * 100) / completedTasks - 100), -100) : 0;
@@ -194,10 +214,9 @@ export const getStaffTasks = async (req, res) => {
     });
 
     mergedData.sort((a, b) => a.name.localeCompare(b.name));
-    const totalCount = mergedData.length;
-    const paginatedData = mergedData.slice((pageNumber - 1) * limitNumber, pageNumber * limitNumber);
+    const totalCount = allUsers.length;
 
-    return res.json(paginatedData.map(d => ({ ...d, total_count: totalCount })));
+    return res.json(mergedData.map(d => ({ ...d, total_count: totalCount })));
 
   } catch (err) {
     console.error("🔥 STAFF TASKS ERROR →", err);
@@ -256,7 +275,7 @@ export const exportAllStaffTasks = async (req, res) => {
               ON c.name = u.user_name
           WHERE c.task_start_date::date >= $1::date
             AND c.task_start_date::date <  $2::date
-            AND c.task_start_date::date < CURRENT_DATE
+            AND c.task_start_date::date <= CURRENT_DATE
             AND c.name <> 'Sheelesh Marele'
             ${checklistDeptCondition}
       ),
@@ -387,6 +406,7 @@ export const exportAllStaffTasks = async (req, res) => {
     // 3. Execute queries
     let checklistRows = [];
     let maintenanceRows = [];
+    let housekeepingRows = [];
 
     const queryParams = departmentFilter !== "all"
       ? [startDate, endDate, departmentFilter]
@@ -404,6 +424,85 @@ export const exportAllStaffTasks = async (req, res) => {
       maintenanceRows = mRes.rows;
     } catch (e) {
       console.error("Export Maintenance Query Error:", e.message);
+    }
+
+    const housekeepingQueryStr = `
+      WITH base_tasks AS (
+          SELECT
+              c.name AS name,
+              u.employee_id,
+              c.status AS status,
+              c.task_start_date::date AS task_date,
+              c.submission_date::date AS submission_date_only,
+              c.department AS department
+          FROM public.assign_task c
+          LEFT JOIN public.users u
+              ON c.name = u.user_name
+          WHERE c.task_start_date::date >= $1::date
+            AND c.task_start_date::date <  $2::date
+            AND c.task_start_date::date <= CURRENT_DATE
+            AND c.name <> 'Sheelesh Marele'
+            ${checklistDeptCondition}
+      ),
+      summary AS (
+          SELECT
+              department,
+              name AS doer,
+              employee_id,
+              COUNT(*) AS total_tasks,
+              COUNT(*) FILTER (WHERE lower(status::text) = 'yes') AS total_completed_tasks,
+              COUNT(*) FILTER (
+                  WHERE lower(status::text) = 'yes'
+                    AND submission_date_only <= task_date
+              ) AS total_done_on_time
+          FROM base_tasks
+          GROUP BY department, name, employee_id
+      ),
+      scores AS (
+          SELECT
+              department,
+              doer,
+              employee_id,
+              total_tasks,
+              total_completed_tasks,
+              total_done_on_time,
+              GREATEST(
+                  COALESCE(
+                      ROUND((total_completed_tasks::numeric / NULLIF(total_tasks,0)) * 100 - 100, 2),
+                      0
+                  ),
+                  -100
+              ) AS completion_score,
+              GREATEST(
+                  COALESCE(
+                      ROUND((total_done_on_time::numeric / NULLIF(total_completed_tasks,0)) * 100 - 100, 2),
+                      0
+                  ),
+                  -100
+              ) AS ontime_score
+          FROM summary
+      )
+      SELECT
+          department,
+          doer,
+          employee_id,
+          total_tasks,
+          total_completed_tasks,
+          total_done_on_time,
+          completion_score,
+          ontime_score,
+          GREATEST(
+              ROUND(COALESCE(completion_score,0) + COALESCE(ontime_score,0), 2),
+              -100
+          ) AS total_score
+      FROM scores
+    `;
+
+    try {
+      const hRes = await housekeepingQuery(housekeepingQueryStr, queryParams);
+      housekeepingRows = hRes.rows;
+    } catch (e) {
+      console.error("Export Housekeeping Query Error:", e.message);
     }
 
     // 4. Merge data (same logic as getStaffTasks)
@@ -442,26 +541,25 @@ export const exportAllStaffTasks = async (req, res) => {
       staff.completedTasks += Number(row.total_completed_tasks || 0);
       staff.doneOnTime += Number(row.total_done_on_time || 0);
 
+      // Store raw scores for individual tracking if ever needed later
       const completionScore = Number(row.completion_score || 0);
       const ontimeScore = Number(row.ontime_score || 0);
       const totalScore = Number(row.total_score || 0);
 
-      staff.totalScore += totalScore;
-
       if (type === 'checklist') {
         staff.checklistScore = totalScore;
-        staff.completion_score += completionScore;
-        staff.ontime_score += ontimeScore;
       }
       if (type === 'maintenance') {
         staff.maintenanceScore = totalScore;
-        staff.completion_score += completionScore;
-        staff.ontime_score += ontimeScore;
+      }
+      if (type === 'housekeeping') {
+        staff.housekeepingScore = totalScore;
       }
     };
 
     checklistRows.forEach(r => processRow(r, 'checklist'));
     maintenanceRows.forEach(r => processRow(r, 'maintenance'));
+    housekeepingRows.forEach(r => processRow(r, 'housekeeping'));
 
     let finalData = Array.from(staffMap.values());
 
@@ -481,12 +579,21 @@ export const exportAllStaffTasks = async (req, res) => {
       finalData = finalData.slice(0, MAX_EXPORT_LIMIT);
     }
 
-    // 8. Map to final format
-    const mappedData = finalData.map(s => ({
-      ...s,
-      pendingTasks: s.totalTasks - s.completedTasks,
-      onTimeScore: Number(s.totalScore.toFixed(2))
-    }));
+    // 8. Map to final format with proper aggregate calculations
+    const mappedData = finalData.map(s => {
+      const completionScore = s.totalTasks > 0 ? Math.max(Math.round((s.completedTasks * 100) / s.totalTasks - 100), -100) : 0;
+      const ontimeScore = s.completedTasks > 0 ? Math.max(Math.round((s.doneOnTime * 100) / s.completedTasks - 100), -100) : 0;
+      const totalScore = Math.max(completionScore + ontimeScore, -100);
+
+      return {
+        ...s,
+        completion_score: completionScore,
+        ontime_score: ontimeScore,
+        totalScore: totalScore,
+        pendingTasks: s.totalTasks - s.completedTasks,
+        onTimeScore: Number(totalScore.toFixed(2))
+      };
+    });
 
     return res.json({
       data: mappedData,

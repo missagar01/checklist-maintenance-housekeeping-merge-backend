@@ -1003,15 +1003,13 @@ class AssignTaskRepository {
       INSERT INTO assign_task (
         id, task_id, department, given_by, name, task_description, remark, status,
         image, attachment, doer_name2, hod, frequency, task_start_date, submission_date,
-        delay, remainder, created_at
+        delay, remainder, created_at, division
       )
       VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8,
-        $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+        $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
       )
-      RETURNING id, task_id, department, given_by, name, task_description, remark, status,
-        image, attachment, doer_name2, hod, frequency, task_start_date, submission_date,
-        delay, remainder, created_at;
+      RETURNING *;
     `;
 
     const params = [
@@ -1032,7 +1030,8 @@ class AssignTaskRepository {
       submissionDate,
       input.delay ?? computedDelay,
       input.remainder || null,
-      now
+      now,
+      input.division || null
     ];
 
     const result = await query(sql, params);
@@ -1091,7 +1090,8 @@ class AssignTaskRepository {
       'task_start_date',
       'submission_date',
       'delay',
-      'remainder'
+      'remainder',
+      'division'
     ];
 
     const setClauses = [];
@@ -1208,7 +1208,8 @@ class AssignTaskRepository {
       submission_date: submissionDate,
       delay: input.delay ?? computedDelay,
       remainder: input.remainder || null,
-      created_at: now
+      created_at: now,
+      division: input.division || null
     };
     this.records.push(record);
     return formatTaskDates(applyComputedDelay(record));

@@ -1,0 +1,597 @@
+[
+  {
+    "table_name": "assign_task",
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "task_id",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "department",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "given_by",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "name",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "task_description",
+    "data_type": "text"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "remark",
+    "data_type": "text"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "status",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "image",
+    "data_type": "text"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "attachment",
+    "data_type": "text"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "frequency",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "task_start_date",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "submission_date",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "delay",
+    "data_type": "integer"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "remainder",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "hod",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "doer_name2",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "division",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "assign_task",
+    "column_name": "doer_department",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "task_id",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "department",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "given_by",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "name",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "task_description",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "enable_reminder",
+    "data_type": "USER-DEFINED"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "require_attachment",
+    "data_type": "USER-DEFINED"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "frequency",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "remark",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "status",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "image",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "admin_done",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "delay",
+    "data_type": "interval"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "planned_date",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "task_start_date",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "submission_date",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "user_status_checklist",
+    "data_type": "text"
+  },
+  {
+    "table_name": "checklist",
+    "column_name": "division",
+    "data_type": "text"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "task_id",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "created_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "department",
+    "data_type": "text"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "name",
+    "data_type": "text"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "task_description",
+    "data_type": "text"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "frequency",
+    "data_type": "text"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "remarks",
+    "data_type": "text"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "task_start_date",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "given_by",
+    "data_type": "text"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "image",
+    "data_type": "text"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "enable_reminder",
+    "data_type": "USER-DEFINED"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "require_attachment",
+    "data_type": "text"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "status",
+    "data_type": "text"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "updated_at",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "planned_date",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "submission_date",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "color_code_for",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "delegation",
+    "column_name": "delay",
+    "data_type": "interval"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "id",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "time_stamp",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "task_no",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "serial_no",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "machine_name",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "given_by",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "doer_name",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "task_type",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "machine_area",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "part_name",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "need_sound_test",
+    "data_type": "boolean"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "temperature",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "enable_reminders",
+    "data_type": "boolean"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "require_attachment",
+    "data_type": "boolean"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "task_start_date",
+    "data_type": "date"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "frequency",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "description",
+    "data_type": "text"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "priority",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "machine_department",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "actual_date",
+    "data_type": "date"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "delay",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "task_status",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "remarks",
+    "data_type": "text"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "sound_status",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "temperature_status",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "image_link",
+    "data_type": "text"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "file_name",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "file_type",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "maintenance_cost",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "doer_department",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "maintenance_task_assign",
+    "column_name": "division",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "users",
+    "column_name": "id",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "users",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "users",
+    "column_name": "user_name",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "password",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "email_id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "number",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "users",
+    "column_name": "department",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "given_by",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "role",
+    "data_type": "USER-DEFINED"
+  },
+  {
+    "table_name": "users",
+    "column_name": "status",
+    "data_type": "USER-DEFINED"
+  },
+  {
+    "table_name": "users",
+    "column_name": "user_access",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "leave_date",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "users",
+    "column_name": "remark",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "leave_end_date",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "users",
+    "column_name": "employee_id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "last_punch_time",
+    "data_type": "timestamp without time zone"
+  },
+  {
+    "table_name": "users",
+    "column_name": "last_punch_device",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "page_access",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "system_access",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "subscription_access_system",
+    "data_type": "jsonb"
+  },
+  {
+    "table_name": "users",
+    "column_name": "user_access1",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "store_access",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "emp_image",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "verify_access",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "users",
+    "column_name": "verify_access_dept",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "store_role_access",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "designation",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "profile_img",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "document_img",
+    "data_type": "text"
+  },
+  {
+    "table_name": "users",
+    "column_name": "division",
+    "data_type": "character varying"
+  }
+]

@@ -23,10 +23,11 @@ export const insertMaintenanceTask = async (data) => {
       description,
       priority,
       machine_department,
-      doer_department
+      doer_department,
+      division
     )
     VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
     )
     RETURNING *;
   `;
@@ -60,6 +61,7 @@ export const insertMaintenanceTask = async (data) => {
     data.priority,
     data.machine_department,
     data.doer_department,
+    data.division // NEW
   ];
 
   try {
@@ -81,7 +83,7 @@ export const getAllMaintenanceTasks = async () => {
       task_type, machine_area, part_name, need_sound_test, 
       temperature, enable_reminders, require_attachment, 
       task_start_date, frequency, description, priority, 
-      machine_department, doer_department
+      machine_department, doer_department, division
     FROM maintenance_task_assign
     ORDER BY id DESC;
   `;
@@ -133,7 +135,8 @@ export const bulkInsertMaintenanceTasks = async (tasksArray) => {
         description,
         priority,
         machine_department,
-        doer_department
+        doer_department,
+        division
       )
       SELECT
         t.time_stamp::timestamptz,
@@ -153,7 +156,8 @@ export const bulkInsertMaintenanceTasks = async (tasksArray) => {
         t.description,
         t.priority,
         t.machine_department,
-        t.doer_department
+        t.doer_department,
+        t.division
       FROM jsonb_to_recordset($1::jsonb) AS t(
         time_stamp text,
         serial_no text,
@@ -172,7 +176,8 @@ export const bulkInsertMaintenanceTasks = async (tasksArray) => {
         description text,
         priority text,
         machine_department text,
-        doer_department text
+        doer_department text,
+        division text
       )
       RETURNING task_no;
     `;
