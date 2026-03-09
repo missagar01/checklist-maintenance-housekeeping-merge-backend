@@ -1,18 +1,8 @@
 import { insertMachine, getAllMachines } from "../../services/maintenance-serices/machineServices.js";
-import { uploadMaintenanceImageToS3 } from "../../middleware/s3Upload.js";
 
 export const createMachine = async (req, res) => {
   try {
     const body = req.body;
-    // ✅ OPTIMIZED: Upload files to S3 in parallel
-    const [userManualUrl, purchaseBillUrl] = await Promise.all([
-      req.files?.user_manual?.[0]
-        ? uploadMaintenanceImageToS3(req.files.user_manual[0])
-        : Promise.resolve(null),
-      req.files?.purchase_bill?.[0]
-        ? uploadMaintenanceImageToS3(req.files.purchase_bill[0])
-        : Promise.resolve(null),
-    ]);
 
     // ✅ Parse JSON strings if needed
     let maintenanceSchedule = body.maintenance_schedule;
@@ -38,39 +28,40 @@ export const createMachine = async (req, res) => {
       department: body.department || null,
       location: body.location || null,
       initial_maintenance_date: body.initial_maintenance_date || null,
-      user_manual: userManualUrl || null,
-      purchase_bill: purchaseBillUrl || null,
+      user_manual: null,
+      purchase_bill: null,
       notes: body.notes || null,
       tag_no: body.tag_no || null,
       user_allot: body.user_allot || null,
     };
 
-    const machine = await insertMachine(machineData);
-    res.status(201).json({ success: true, data: machine });
+    const newMachine = await insertMachine(machineData);
+
+    res.status(201).json({
+      message: "Machine created successfully",
+      machine: newMachine,
+    });
   } catch (error) {
-    console.error("Insert error:", error.message);
-    res.status(500).json({ success: false, error: "Failed to insert machine" });
+    console.error("❌ Machine Creation Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
-export const fetchAllMachines = async (req, res) => {
+export const getMachines = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = 50;
+    const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
 
     const machines = await getAllMachines(limit, offset);
-
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       data: machines,
       page,
-      nextPage: machines.length === limit ? page + 1 : null,
+      nextPage: machines.length === limit ? page + 1 : null
     });
   } catch (error) {
-    console.error("Fetch error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("❌ Get Machines Error:", error);
+    res.status(500).json({ success: false, error: "Internal Server Error" });
   }
 };
-
-

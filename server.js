@@ -23,7 +23,7 @@ import staffTasksRoutes from "./routes/staffTasksRoutes.js";
 import quickTaskRoutes from "./routes/quickTaskRoutes.js";
 import loginRoutes from "./routes/loginRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
-import userRoutes from "./routes/userRoutes.js";
+// import userRoutes from "./routes/userRoutes.js";
 import userScore from "./routes/userScoreRoutes.js";
 import addNewTaskRoutes from "./routes/AddNewTask.routes.js";
 
@@ -36,7 +36,7 @@ import workingDayRoutes from "./routes/maintenance-routes/workingDayRoutes.js";
 import machineRoutes from "./routes/maintenance-routes/machineRoutes.js";
 import masterRoutes from "./routes/maintenance-routes/masterRoutes.js";
 import departmentRoutes from "./routes/maintenance-routes/departmentRoutes.js";
-import uploadRoutes from "./routes/maintenance-routes/uploadRoutes.js";
+// import uploadRoutes from "./routes/maintenance-routes/uploadRoutes.js";
 import maintenanceDashboardRoutes from "./routes/maintenance-routes/maintenanceDashboardRoutes.js";
 
 import housekeepingRoutes from "./routes/housekepping-routes/index.js";
@@ -51,7 +51,7 @@ app.use("/api/assign-task", assignTaskRoutes);
 app.use("/api/checklist", checklistRoutes);
 app.use("/api", delegationRoutes);
 app.use("/api/settings", settingRoutes);
-app.use("/api/settings", userRoutes);
+// app.use("/api/settings", userRoutes);
 app.use("/api/staff-tasks", staffTasksRoutes);
 app.use("/api/tasks", quickTaskRoutes);
 app.use("/api/login", loginRoutes);
@@ -68,7 +68,7 @@ app.use("/api/working-days", workingDayRoutes);
 app.use("/api/machines", machineRoutes);
 app.use("/api/master", masterRoutes);
 app.use("/api/departments", departmentRoutes);
-app.use("/api/upload", uploadRoutes);
+// app.use("/api/upload", uploadRoutes);
 app.use("/api/maintenance-dashboard", maintenanceDashboardRoutes);
 
 app.use("/api/housekeeping-dashboard", housekeepingRoutes);

@@ -1,5 +1,4 @@
 import { pool } from "../config/db.js";
-import { uploadToS3 } from "../middleware/s3Upload.js";
 
 
 /* ------------------------------------------------------
@@ -207,57 +206,16 @@ export const insertDelegationDoneAndUpdate = async (req, res) => {
       return res.status(400).json({ error: "selectedData missing or invalid" });
     }
 
-    // ✅ OPTIMIZED: Process all S3 uploads in PARALLEL first
-    // This avoids blocking the DB transaction with external API calls.
-    const processedTasks = await Promise.all(
-      selectedDataArray.map(async (task) => {
-        let finalImageUrl = null;
-
-        if (task.image_base64 && typeof task.image_base64 === "string") {
-          try {
-            // CASE 1: NEW UPLOAD (BASE64)
-            if (task.image_base64.startsWith("data:image")) {
-              // console.log("📸 Base64 image detected → Uploading to S3...");
-              const base64Data = task.image_base64.split(";base64,").pop();
-              const buffer = Buffer.from(base64Data, "base64");
-
-              const fakeFile = {
-                originalname: `delegation_${task.task_id}_${Date.now()}.jpg`,
-                buffer,
-                mimetype: "image/jpeg",
-              };
-
-              finalImageUrl = await uploadToS3(fakeFile);
-              // console.log("✅ Uploaded to S3:", finalImageUrl);
-            }
-            // CASE 2: ALREADY S3 URL
-            else if (task.image_base64.startsWith("http")) {
-              finalImageUrl = task.image_base64;
-            }
-            // CASE 3: Invalid
-            else {
-              finalImageUrl = null;
-            }
-          } catch (imageError) {
-            console.error("❌ Image processing error:", imageError);
-            finalImageUrl = null;
-          }
-        }
-
-        return {
-          ...task,
-          finalImageUrl
-        };
-      })
-    );
+    // ✅ S3 uploads removed
+    const processedTasks = selectedDataArray.map((task) => ({
+      ...task
+    }));
 
     // Now start transaction (DB operations only)
     await client.query("BEGIN");
     const results = [];
 
     for (const task of processedTasks) {
-      // console.log(`🔍 Processing Task ID: ${task.task_id}`);
-
       /* -----------------------------------------
          1️⃣ Decide Final Status for Tables
       ------------------------------------------ */
@@ -280,8 +238,8 @@ export const insertDelegationDoneAndUpdate = async (req, res) => {
       ------------------------------------------ */
       const insertQuery = `
         INSERT INTO delegation_done
-        (task_id, status, next_extend_date, reason, image_url, name, task_description, given_by)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        (task_id, status, next_extend_date, reason, name, task_description, given_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
         RETURNING *;
       `;
 
@@ -290,7 +248,6 @@ export const insertDelegationDoneAndUpdate = async (req, res) => {
         statusForDone,
         task.next_extend_date || null,
         task.reason || "",
-        task.finalImageUrl, // Use the pre-processed URL
         task.name,
         task.task_description,
         task.given_by
@@ -307,9 +264,8 @@ export const insertDelegationDoneAndUpdate = async (req, res) => {
             submission_date = NOW(),
             updated_at = NOW(),
             remarks = $2,
-            planned_date = $3,
-            image = $4
-        WHERE task_id = $5
+            planned_date = $3
+        WHERE task_id = $4
         RETURNING *;
       `;
 
@@ -317,7 +273,6 @@ export const insertDelegationDoneAndUpdate = async (req, res) => {
         statusForDelegation,
         task.reason || "",
         task.next_extend_date || task.planned_date,
-        task.finalImageUrl, // Use the pre-processed URL
         task.task_id
       ];
 

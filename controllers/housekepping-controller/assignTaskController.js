@@ -19,22 +19,6 @@ const normalizeFrequency = (value, { defaultValue } = {}) => {
   return defaultValue !== undefined ? defaultValue : lower;
 };
 
-const toUploadedPath = (req, file) => {
-  if (!file) return undefined;
-  const host = req.get('host');
-  const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
-  const base = host ? `${proto}://${host}` : '';
-  // Use /api/uploads so the path works with the API base
-  return `${base}/api/uploads/${file.filename}`;
-};
-
-const toUploadedMeta = (req, file) => {
-  if (!file) return undefined;
-  return {
-    id: file.filename,
-    url: toUploadedPath(req, file)
-  };
-};
 
 const safeJsonParse = (value) => {
   try {
@@ -230,8 +214,7 @@ const assignTaskController = {
     try {
       const prepared = prepareCreatePayload(req.body);
       const created = await assignTaskService.create(prepared);
-      const meta = toUploadedMeta(req, req.file);
-      res.status(201).json(meta ? { ...created, uploaded_image: meta } : created);
+      res.status(201).json(created);
     } catch (err) {
       next(err);
     }
@@ -293,8 +276,7 @@ const assignTaskController = {
       const prepared = prepareUpdatePayload(req.body);
       const updated = await assignTaskService.update(req.params.id, prepared);
       if (!updated) throw new ApiError(404, 'Assignment not found');
-      const meta = toUploadedMeta(req, req.file);
-      res.json(meta ? { ...updated, uploaded_image: meta } : updated);
+      res.json(updated);
     } catch (err) {
       next(err);
     }
@@ -587,17 +569,6 @@ const assignTaskController = {
       const body = typeof req.body === 'string' ? safeJsonParse(req.body) : (req.body || {});
       const payload = {};
 
-      const fileFromFields =
-        req.file ||
-        (req.files && Array.isArray(req.files) && req.files[0]) ||
-        (req.files && req.files.image && req.files.image[0]) ||
-        (req.files && req.files.upload && req.files.upload[0]);
-
-      const uploadedImage = toUploadedPath(req, fileFromFields);
-      const uploadedMeta = toUploadedMeta(req, fileFromFields);
-      if (uploadedImage) {
-        payload.image = uploadedImage;
-      }
 
       const attachmentValue = extractAttachment(body, req.query);
       payload.attachment = attachmentValue !== undefined && attachmentValue !== null
@@ -629,7 +600,7 @@ const assignTaskController = {
         logger.warn({ taskId }, 'Housekeeping task not found for confirmation');
         throw new ApiError(404, 'Assignment not found');
       }
-      res.json(uploadedMeta ? { ...updated, uploaded_image: uploadedMeta } : updated);
+      res.json(updated);
     } catch (err) {
       logger.error({ err, taskId: req.params.id }, 'Error confirming housekeeping task');
       next(err);
@@ -648,19 +619,6 @@ const assignTaskController = {
         throw new ApiError(400, 'ids array is required for bulk confirm');
       }
 
-      const fileFromFields =
-        req.file ||
-        (req.files && Array.isArray(req.files) && req.files[0]) ||
-        (req.files && req.files.image && req.files.image[0]) ||
-        (req.files && req.files.upload && req.files.upload[0]);
-
-      const uploadedImage = toUploadedPath(req, fileFromFields);
-      const uploadedMeta = toUploadedMeta(req, fileFromFields);
-
-      const payload = {};
-      if (uploadedImage) {
-        payload.image = uploadedImage;
-      }
 
       const attachmentValue = extractAttachment(body, req.query);
       payload.attachment = attachmentValue !== undefined && attachmentValue !== null
@@ -687,7 +645,7 @@ const assignTaskController = {
         // eslint-disable-next-line no-await-in-loop
         const updated = await assignTaskService.update(id, payload);
         if (updated) {
-          successes.push(uploadedMeta ? { ...updated, uploaded_image: uploadedMeta } : updated);
+          successes.push(updated);
         } else {
           failures.push({ id, error: 'Not found' });
         }

@@ -122,7 +122,9 @@ export const getStaffTasks = async (req, res) => {
       return res.json([]);
     }
 
-    // 3. Fetch Task Summaries
+    // 3. Fetch Task Summaries for ONLY the paginated users (Optimization)
+    const userNames = paginatedUsers.map(u => u.name);
+
     const checklistSummaryQuery = `
       SELECT
           c.name,
@@ -136,6 +138,7 @@ export const getStaffTasks = async (req, res) => {
       WHERE c.task_start_date::date >= $1::date
         AND c.task_start_date::date <  $2::date
         AND c.task_start_date::date <= CURRENT_DATE
+        AND c.name = ANY($3)
       GROUP BY c.name
     `;
 
@@ -152,6 +155,7 @@ export const getStaffTasks = async (req, res) => {
       WHERE c.task_start_date::date >= $1::date
         AND c.task_start_date::date <  $2::date
         AND c.task_start_date::date <= CURRENT_DATE
+        AND c.doer_name = ANY($3)
       GROUP BY c.doer_name
     `;
 
@@ -168,13 +172,23 @@ export const getStaffTasks = async (req, res) => {
       WHERE c.task_start_date::date >= $1::date
         AND c.task_start_date::date <  $2::date
         AND c.task_start_date::date <= CURRENT_DATE
+        AND c.name = ANY($3)
       GROUP BY c.name
     `;
 
     const [chkRes, mntRes, hkRes] = await Promise.all([
-      pool.query(checklistSummaryQuery, [startDate, endDate]),
-      maintenancePool.query(maintenanceSummaryQuery, [startDate, endDate]),
-      housekeepingQuery(housekeepingSummaryQuery, [startDate, endDate])
+      pool.query(checklistSummaryQuery, [startDate, endDate, userNames]).catch(err => {
+        console.error("Checklist Summary Error:", err.message);
+        return { rows: [] };
+      }),
+      maintenancePool.query(maintenanceSummaryQuery, [startDate, endDate, userNames]).catch(err => {
+        console.error("Maintenance Summary Error:", err.message);
+        return { rows: [] };
+      }),
+      housekeepingQuery(housekeepingSummaryQuery, [startDate, endDate, userNames]).catch(err => {
+        console.error("Housekeeping Summary Error:", err.message);
+        return { rows: [] };
+      })
     ]);
 
     const chkMap = new Map(chkRes.rows.map(r => [r.name?.toLowerCase(), r]));

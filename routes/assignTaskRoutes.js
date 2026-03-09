@@ -7,7 +7,6 @@ import {
   getWorkingDays,
   postAssignTasks
 } from "../controllers/assignTaskController.js";
-import upload from "../middleware/s3Upload.js"
 
 const router = express.Router();
 
@@ -28,6 +27,5 @@ router.get("/working-days", getWorkingDays);
 
 // Insert Tasks
 router.post("/assign", postAssignTasks);
-router.post("/assign", upload.single("image"), postAssignTasks);
 
 export default router;

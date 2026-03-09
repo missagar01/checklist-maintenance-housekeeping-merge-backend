@@ -1,5 +1,4 @@
 import { pool } from "../config/db.js";
-import upload, { uploadToS3 } from "../middleware/s3Upload.js";
 
 // -----------------------------------------
 // 1️⃣ GET PENDING CHECKLIST
@@ -126,27 +125,8 @@ export const updateChecklist = async (req, res) => {
     if (!Array.isArray(items) || items.length === 0)
       return res.status(400).json({ error: "Invalid data" });
 
-    // ✅ OPTIMIZED: Process S3 uploads in parallel BEFORE transaction
-    const processedItems = await Promise.all(
-      items.map(async (item) => {
-        let finalImageUrl = null;
-        if (item.image && typeof item.image === "string") {
-          if (item.image.startsWith("data:image")) {
-            const base64Data = item.image.split(";base64,").pop();
-            const buffer = Buffer.from(base64Data, "base64");
-            const fakeFile = {
-              originalname: `task_${item.taskId}_${Date.now()}.jpg`,
-              buffer,
-              mimetype: "image/jpeg",
-            };
-            finalImageUrl = await uploadToS3(fakeFile);
-          } else {
-            finalImageUrl = item.image;
-          }
-        }
-        return { ...item, finalImageUrl };
-      })
-    );
+    // ✅ S3 uploads removed
+    const processedItems = items.map((item) => ({ ...item }));
 
     const client = await pool.connect();
 
@@ -166,15 +146,13 @@ export const updateChecklist = async (req, res) => {
           SET 
             status = $1,
             remark = $2,
-            submission_date = NULL,
-            image = $3
-          WHERE task_id = $4
+            submission_date = NULL
+          WHERE task_id = $3
         `;
 
         await client.query(sql, [
           safeStatus,
           item.remarks || "",
-          item.finalImageUrl,
           item.taskId,
         ]);
       }

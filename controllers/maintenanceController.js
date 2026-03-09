@@ -10,8 +10,7 @@ import {
   getUniqueMaintenanceDoerName,
 } from "../services/maintenanceServices.js";
 
-// import { uploadToS3 } from "../middleware/s3Upload.js";
-import upload, { uploadMaintenanceImageToS3 } from "../middleware/s3Upload.js";
+// S3 Upload imports removed
 
 /**
  * Get all maintenance tasks
@@ -145,18 +144,10 @@ export const updateMaintenanceTaskController = async (req, res) => {
     Object.keys(updateData).forEach(key => {
       if (fieldMapping[key]) {
         mappedData[fieldMapping[key]] = updateData[key];
-      } else if (key !== "image") { // Handle image separately
+      } else if (key !== "image") {
         mappedData[key] = updateData[key];
       }
     });
-
-    if (req.file) {
-      const fileUrl = await uploadMaintenanceImageToS3(req.file); // <-- NEW BUCKET
-
-      mappedData.image_link = fileUrl;
-      mappedData.file_name = req.file.originalname;
-      mappedData.file_type = req.file.mimetype.split("/")[1];
-    }
 
 
     const updatedTask = await updateMaintenanceTask(taskId, mappedData);
