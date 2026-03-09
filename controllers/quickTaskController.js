@@ -43,9 +43,12 @@ export const fetchChecklist = async (
     const dataParams = [...params, pageSize, offset];
 
     const countQuery = `
-      SELECT COUNT(DISTINCT (LOWER(name), LOWER(task_description))) AS count
-      FROM checklist
-      WHERE ${whereClause}
+      SELECT COUNT(*) AS count FROM (
+        SELECT 1
+        FROM checklist
+        WHERE ${whereClause}
+        GROUP BY LOWER(name), LOWER(task_description)
+      ) AS subquery
     `;
 
     const [dataRes, countRes] = await Promise.all([
@@ -103,9 +106,12 @@ export const fetchDelegation = async (
     const dataParams = [...params, pageSize, offset];
 
     const countQuery = `
-      SELECT COUNT(DISTINCT (LOWER(name), LOWER(task_description))) AS count
-      FROM delegation
-      WHERE ${whereClause}
+      SELECT COUNT(*) AS count FROM (
+        SELECT 1
+        FROM delegation
+        WHERE ${whereClause}
+        GROUP BY LOWER(name), LOWER(task_description)
+      ) AS subquery
     `;
 
     const [dataRes, countRes] = await Promise.all([
