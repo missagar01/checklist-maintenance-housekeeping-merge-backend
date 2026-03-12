@@ -3,6 +3,7 @@ import { pool } from "../config/db.js";
 export const addNewChecklistTaskService = async (data) => {
   const {
     department,
+    division,
     given_by,
     name,
     task_description,
@@ -16,6 +17,7 @@ export const addNewChecklistTaskService = async (data) => {
   const query = `
     INSERT INTO public.checklist (
       department,
+      division,
       given_by,
       name,
       task_description,
@@ -33,15 +35,15 @@ export const addNewChecklistTaskService = async (data) => {
       submission_date
     )
     VALUES (
-      $1,$2,$3,$4,
+      $1,$2,$3,$4,$5,
       'yes',
       'no',
       'one time',
-      $5,
+      $6,
       'yes',
-      $6,$7,$8,
+      $7,$8,$9,
       date_trunc('day', now()) + time '09:00:00',
-      $9,
+      $10,
       date_trunc('day', now()) + time '09:00:00',
       now()
     )
@@ -50,6 +52,7 @@ export const addNewChecklistTaskService = async (data) => {
 
   const values = [
     department || null,
+    division || null,
     given_by || null,
     name || null,
     task_description || null,

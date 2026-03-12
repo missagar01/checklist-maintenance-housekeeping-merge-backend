@@ -1093,7 +1093,7 @@ export const getDivisionWiseTaskCountsService = async ({
           ontimeScore = 0;
         }
 
-        const totalScore = Math.max(Math.round(completionScore + ontimeScore), -100);
+        const totalScore = Math.max(Math.round(completionScore), -100);
 
         // Append scores directly to the total section of the department
         divisionData.total.departments[dept].scores = {
