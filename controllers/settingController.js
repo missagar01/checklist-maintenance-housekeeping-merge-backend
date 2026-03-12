@@ -305,7 +305,7 @@ export const deleteUser = async (req, res) => {
 export const getDepartments = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT DISTINCT department, given_by, id
+      SELECT DISTINCT department, given_by, id, division
       FROM users
       WHERE department IS NOT NULL AND department <> ''
       ORDER BY department ASC
@@ -379,7 +379,7 @@ export const getGivenByData = async (req, res) => {
  *******************************/
 export const createDepartment = async (req, res) => {
   try {
-    const { name, givenBy } = req.body;
+    const { name, givenBy, division } = req.body;
 
     // Validate input
     if (!name || name.trim() === "") {
@@ -391,8 +391,8 @@ export const createDepartment = async (req, res) => {
 
     // Check if department already exists
     const existingDept = await pool.query(
-      `SELECT id FROM users WHERE department = $1 AND (given_by = $2 OR ($2 IS NULL AND given_by IS NULL)) LIMIT 1`,
-      [departmentName, givenByValue]
+      `SELECT id FROM users WHERE department = $1 AND (given_by = $2 OR ($2 IS NULL AND given_by IS NULL)) AND (division = $3 OR ($3 IS NULL AND division IS NULL)) LIMIT 1`,
+      [departmentName, givenByValue, division]
     );
 
     if (existingDept.rows.length > 0) {
@@ -410,9 +410,10 @@ export const createDepartment = async (req, res) => {
         given_by, 
         user_access, 
         role, 
-        status
+        status,
+        division
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `, [
       `DEPT_${departmentName}_${Date.now()}`, // Unique user_name
@@ -422,7 +423,8 @@ export const createDepartment = async (req, res) => {
       givenByValue,
       departmentName, // Set user_access to match department
       'user', // Default role
-      'active' // Default status
+      'active', // Default status
+      division
     ]);
 
     res.status(201).json(result.rows[0]);
@@ -444,15 +446,15 @@ export const createDepartment = async (req, res) => {
 export const updateDepartment = async (req, res) => {
   try {
     const { id } = req.params;
-    const { department, given_by } = req.body;
+    const { department, given_by, division } = req.body;
 
     // Validate input
     if (!id) {
       return res.status(400).json({ error: "User ID is required" });
     }
 
-    if (!department && !given_by) {
-      return res.status(400).json({ error: "At least department or given_by must be provided" });
+    if (!department && !given_by && !division) {
+      return res.status(400).json({ error: "At least department, given_by, or division must be provided" });
     }
 
     // Build dynamic update query based on provided fields
@@ -468,6 +470,11 @@ export const updateDepartment = async (req, res) => {
     if (given_by !== undefined && given_by !== null) {
       updates.push(`given_by = $${paramIndex++}`);
       values.push(given_by);
+    }
+
+    if (division !== undefined && division !== null) {
+      updates.push(`division = $${paramIndex++}`);
+      values.push(division);
     }
 
     // Add user_access to match department (as they seem to be linked)
