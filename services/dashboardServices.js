@@ -598,15 +598,21 @@ export const getStaffTasksCountService = async ({
 // ─────────────────────────────────────────────
 // DEPARTMENTS & STAFF
 // ─────────────────────────────────────────────
-export const getUniqueDepartmentsService = async () => {
+export const getUniqueDepartmentsService = async (division = null) => {
   try {
-    const query = `
+    let query = `
       SELECT department
       FROM users
       WHERE department IS NOT NULL
         AND TRIM(department) <> ''
     `;
-    const { rows } = await pool.query(query);
+    const params = [];
+    if (division && division !== "all") {
+      query += ` AND LOWER(division) = LOWER($1)`;
+      params.push(division);
+    }
+
+    const { rows } = await pool.query(query, params);
 
     const unique = [
       ...new Set(

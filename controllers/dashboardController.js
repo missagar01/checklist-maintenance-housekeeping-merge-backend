@@ -857,7 +857,8 @@ export const getOverdueTask = async (req, res) => {
 
 export const getUniqueDepartments = async (req, res) => {
   try {
-    const departments = await getUniqueDepartmentsService();
+    const { division } = req.query;
+    const departments = await getUniqueDepartmentsService(division);
     res.json(departments);
   } catch (err) {
     console.error("DEPARTMENTS ERROR:", err.message);
