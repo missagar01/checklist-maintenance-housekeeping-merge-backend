@@ -33,7 +33,14 @@ jobs:
         run: |
           set -e
           export DEPLOY_MODE=true
+          
+          echo "🧹 Flushing PM2 logs to save space..."
+          pm2 flush || true
+          
+          echo "🚀 Restarting checklist-backend..."
+          # Standardize on checklist-backend name. Restart if exists, start if not.
           pm2 restart checklist-backend --update-env || pm2 start server.js --name checklist-backend --time --update-env
+          
           pm2 save
           pm2 status
 
@@ -43,23 +50,28 @@ jobs:
           set -e
           PORT=${PORT:-5050}
           echo "Checking http://localhost:$PORT/health"
+          
+          # Wait for server to be ready
           for i in {1..30}; do
             if curl -fsS "http://localhost:$PORT/health" >/dev/null; then
               echo "✅ Health OK"
+              # Show process uptime
+              pm2 show checklist-backend | grep uptime || true
               exit 0
             fi
+            echo "Waiting for health check... ($i/30)"
             sleep 1
           done
 
-          echo "❌ Health failed. Showing PM2 info + last logs (non-tailing)"
+          echo "❌ Health failed. Showing PM2 info + last logs"
           pm2 status || true
           pm2 show checklist-backend || true
 
-          echo "---- OUT LOG (last 120) ----"
-          tail -n 120 /home/ubuntu/.pm2/logs/checklist-backend-out.log || true
+          echo "---- OUT LOG (last 150) ----"
+          tail -n 150 /home/ubuntu/.pm2/logs/checklist-backend-out.log || true
 
-          echo "---- ERROR LOG (last 200) ----"
-          tail -n 200 /home/ubuntu/.pm2/logs/checklist-backend-error.log || true
+          echo "---- ERROR LOG (last 250) ----"
+          tail -n 250 /home/ubuntu/.pm2/logs/checklist-backend-error.log || true
 
           exit 1
 
