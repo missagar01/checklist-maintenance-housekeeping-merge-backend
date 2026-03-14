@@ -130,7 +130,7 @@ export const getPendingMaintenanceTasks = async (
     FROM maintenance_task_assign
     WHERE actual_date IS NULL
       AND task_start_date <= CURRENT_DATE
-      AND task_status IS NULL
+      AND (task_status IS NULL OR task_status = 'PENDING')
   `;
 
   const params = [];

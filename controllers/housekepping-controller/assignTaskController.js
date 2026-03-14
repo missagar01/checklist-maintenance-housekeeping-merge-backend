@@ -594,6 +594,18 @@ const assignTaskController = {
         payload.hod = hodValue;
       }
 
+      const statusValue = body.status || req.query.status;
+      if (statusValue !== undefined && statusValue !== null) {
+        payload.status = statusValue;
+      } else {
+        // Default to 'yes' if confirming
+        payload.status = 'yes';
+      }
+
+      if (req.file) {
+        payload.image = `/uploads/${req.file.filename}`;
+      }
+
       logger.info({ taskId, payload }, 'Confirming housekeeping task');
       const updated = await assignTaskService.update(taskId, payload);
       if (!updated) {
@@ -621,9 +633,11 @@ const assignTaskController = {
 
 
       const attachmentValue = extractAttachment(body, req.query);
-      payload.attachment = attachmentValue !== undefined && attachmentValue !== null
-        ? String(attachmentValue)
-        : 'confirmed';
+      const payload = {
+        attachment: attachmentValue !== undefined && attachmentValue !== null
+          ? String(attachmentValue)
+          : 'confirmed'
+      };
 
       const explicitRemark = Object.prototype.hasOwnProperty.call(body, 'remark')
         ? body.remark

@@ -60,7 +60,9 @@ export const getStaffTasks = async (req, res) => {
       monthYear = "",
       departmentFilter = "all",
       divisionFilter = "all",
-      search = ""
+      search = "",
+      sortBy = "name", // 'name', 'score', 'division', 'department'
+      sortOrder = "asc" // 'asc', 'desc'
     } = req.query;
 
     const pageNumber = Math.max(Number(page) || 1, 1);
@@ -68,73 +70,60 @@ export const getStaffTasks = async (req, res) => {
 
     const { startDate, endDate } = resolveDateRange(monthYear);
 
-    // 1. Query users table for pagination + total count
-    const userParams = [];
-    let userQuery = `
-      SELECT
-          u.user_name AS name,
-          u.employee_id,
-          u.department,
-          u.division,
-          u.email_id AS email
-      FROM public.users u
-      WHERE LOWER(u.role::text) = 'user'
-        AND u.user_name IS NOT NULL
-        AND u.user_name <> 'Sheelesh Marele'
-    `;
+    const queryParams = [startDate, endDate];
+    let filterIdx = 3;
+    let deptClause = "";
+    let divClause = "";
+    let staffClause = "";
+    let searchClause = "";
 
     if (departmentFilter !== "all") {
-      userParams.push(departmentFilter);
-      userQuery += ` AND LOWER(u.department) = LOWER($${userParams.length})`;
+      deptClause = `AND LOWER(department) = LOWER($${filterIdx++})`;
+      queryParams.push(departmentFilter);
     }
     if (divisionFilter && divisionFilter !== "all") {
-      userParams.push(divisionFilter);
-      userQuery += ` AND LOWER(u.division) = LOWER($${userParams.length})`;
-    }
-    if (search && search.trim()) {
-      userParams.push(`%${search.trim().toLowerCase()}%`);
-      userQuery += ` AND (LOWER(u.user_name) LIKE $${userParams.length}
-                   OR LOWER(u.employee_id) LIKE $${userParams.length}
-                   OR LOWER(u.department) LIKE $${userParams.length})`;
+      divClause = `AND LOWER(division) = LOWER($${filterIdx++})`;
+      queryParams.push(divisionFilter);
     }
     if (staffFilter !== "all") {
-      userParams.push(staffFilter);
-      userQuery += ` AND LOWER(u.user_name) = LOWER($${userParams.length})`;
+      staffClause = `AND LOWER(user_name) = LOWER($${filterIdx++})`;
+      queryParams.push(staffFilter);
     }
-    userQuery += ` ORDER BY u.division ASC NULLS LAST, u.department ASC NULLS LAST, u.user_name ASC`;
+    if (search && search.trim()) {
+      searchClause = `AND (LOWER(user_name) LIKE $${filterIdx} OR LOWER(employee_id) LIKE $${filterIdx} OR LOWER(department) LIKE $${filterIdx})`;
+      queryParams.push(`%${search.trim().toLowerCase()}%`);
+      filterIdx++;
+    }
 
-    const usersRes = await pool.query(userQuery, userParams);
-    const allUsers = usersRes.rows;
-
-    if (allUsers.length === 0) return res.json([]);
-
-    const startIndex = (pageNumber - 1) * limitNumber;
-    const paginatedUsers = allUsers.slice(startIndex, startIndex + limitNumber);
-
-    if (paginatedUsers.length === 0) return res.json([]);
-
-    const userNames = paginatedUsers.map(u => u.name);
-
-    // 2. Single unified score query for only the paginated users
-    const unifiedQuery = `
-      WITH base_tasks AS (
+    // Unified query to calculate scores for ALL filtered users
+    const unifiedScoreQuery = `
+      WITH filtered_users AS (
+          SELECT user_name, employee_id, department, division, email_id
+          FROM public.users
+          WHERE LOWER(role::text) = 'user'
+            AND user_name IS NOT NULL
+            AND user_name <> 'Sheelesh Marele'
+            ${deptClause}
+            ${divClause}
+            ${staffClause}
+            ${searchClause}
+      ),
+      base_tasks AS (
           SELECT u.user_name AS doer, c.status, 'checklist' AS source
           FROM public.checklist c
-          JOIN public.users u ON c.name = u.user_name
+          JOIN filtered_users u ON c.name = u.user_name
           WHERE c.task_start_date::date >= $1::date
             AND c.task_start_date::date <  $2::date
             AND c.task_start_date::date <= CURRENT_DATE
-            AND u.user_name = ANY($3)
 
           UNION ALL
 
           SELECT u.user_name AS doer, m.task_status AS status, 'maintenance' AS source
           FROM public.maintenance_task_assign m
-          JOIN public.users u ON m.doer_name = u.user_name
+          JOIN filtered_users u ON m.doer_name = u.user_name
           WHERE m.task_start_date::date >= $1::date
             AND m.task_start_date::date <  $2::date
             AND m.task_start_date::date <= CURRENT_DATE
-            AND u.user_name = ANY($3)
 
           UNION ALL
 
@@ -145,11 +134,10 @@ export const getStaffTasks = async (req, res) => {
                   regexp_replace(a.hod, '\\s*(and|&)\\s*', ',', 'gi'), ','
               )
           ) AS hod_name
-          JOIN public.users u ON trim(hod_name) = u.user_name
+          JOIN filtered_users u ON trim(hod_name) = u.user_name
           WHERE a.task_start_date::date >= $1::date
             AND a.task_start_date::date <  $2::date
             AND a.task_start_date::date <= CURRENT_DATE
-            AND u.user_name = ANY($3)
       ),
       summary AS (
           SELECT
@@ -164,39 +152,86 @@ export const getStaffTasks = async (req, res) => {
               COUNT(*) FILTER (WHERE source = 'housekeeping' AND lower(status::text) = 'yes') AS housekeeping_done
           FROM base_tasks
           GROUP BY doer
+      ),
+      user_scores AS (
+          SELECT
+              fu.user_name AS name,
+              fu.employee_id,
+              fu.department,
+              fu.division,
+              fu.email_id AS email,
+              COALESCE(s.total_tasks, 0) AS total_tasks,
+              COALESCE(s.total_completed_tasks, 0) AS total_completed_tasks,
+              COALESCE(s.checklist_total, 0) AS checklist_total,
+              COALESCE(s.checklist_done, 0) AS checklist_done,
+              COALESCE(s.maintenance_total, 0) AS maintenance_total,
+              COALESCE(s.maintenance_done, 0) AS maintenance_done,
+              COALESCE(s.housekeeping_total, 0) AS housekeeping_total,
+              COALESCE(s.housekeeping_done, 0) AS housekeeping_done,
+              GREATEST(
+                  COALESCE(ROUND((s.total_completed_tasks::numeric / NULLIF(s.total_tasks,0)) * 100 - 100, 2), 0),
+                  -100
+              ) AS completion_score
+          FROM filtered_users fu
+          LEFT JOIN summary s ON fu.user_name = s.doer
       )
-      SELECT
-          doer,
-          total_tasks,
-          total_completed_tasks,
-          checklist_total, checklist_done,
-          maintenance_total, maintenance_done,
-          housekeeping_total, housekeeping_done,
-          GREATEST(
-              COALESCE(ROUND((total_completed_tasks::numeric / NULLIF(total_tasks,0)) * 100 - 100, 2), 0),
-              -100
-          ) AS completion_score
-      FROM summary
+      SELECT *, COUNT(*) OVER() as full_count FROM user_scores
     `;
 
-    const scoreRes = await pool.query(unifiedQuery, [startDate, endDate, userNames]);
-    const scoreMap = new Map(scoreRes.rows.map(r => [r.doer?.toLowerCase(), r]));
+    const result = await pool.query(unifiedScoreQuery, queryParams);
+    const allRows = result.rows;
 
-    // 3. Merge score data with user info
-    const mergedData = paginatedUsers.map(user => {
-      const nameKey = user.name?.toLowerCase();
-      const score = scoreMap.get(nameKey);
-      const totalTasks     = Number(score?.total_tasks || 0);
-      const completedTasks = Number(score?.total_completed_tasks || 0);
-      const completionScore = Number(score?.completion_score || 0);
+    if (allRows.length === 0) return res.json([]);
+
+    const totalCount = parseInt(allRows[0].full_count);
+
+    // 3. Sort all data
+    allRows.sort((a, b) => {
+      let valA, valB;
+      
+      if (sortBy === 'score' || sortBy === 'completion_score') {
+        valA = Number(a.completion_score || 0);
+        valB = Number(b.completion_score || 0);
+      } else if (sortBy === 'division') {
+        valA = (a.division || '').toLowerCase();
+        valB = (b.division || '').toLowerCase();
+      } else if (sortBy === 'department') {
+        valA = (a.department || '').toLowerCase();
+        valB = (b.department || '').toLowerCase();
+      } else {
+        // Default to name
+        valA = (a.name || '').toLowerCase();
+        valB = (b.name || '').toLowerCase();
+      }
+
+      if (valA < valB) return sortOrder === 'desc' ? 1 : -1;
+      if (valA > valB) return sortOrder === 'desc' ? -1 : 1;
+      
+      // Secondary sort by name
+      if (sortBy !== 'name') {
+          return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+      }
+      return 0;
+    });
+
+    // 4. Paginate
+    const startIndex = (pageNumber - 1) * limitNumber;
+    const paginatedRows = allRows.slice(startIndex, startIndex + limitNumber);
+
+    // 5. Map to final structure
+    const mergedData = paginatedRows.map(row => {
+      const nameKey = row.name?.toLowerCase();
+      const totalTasks = Number(row.total_tasks || 0);
+      const completedTasks = Number(row.total_completed_tasks || 0);
+      const completionScore = Number(row.completion_score || 0);
 
       return {
         id: nameKey.replace(/\s+/g, "-"),
-        name: user.name,
-        employee_id: user.employee_id,
-        email: user.email || `${nameKey.replace(/\s+/g, ".")}@example.com`,
-        department: user.department,
-        division: user.division,
+        name: row.name,
+        employee_id: row.employee_id,
+        email: row.email || `${nameKey.replace(/\s+/g, ".")}@example.com`,
+        department: row.department,
+        division: row.division,
         totalTasks,
         completedTasks,
         doneOnTime: 0,
@@ -205,27 +240,16 @@ export const getStaffTasks = async (req, res) => {
         ontime_score: 0,
         totalScore: completionScore,
         onTimeScore: completionScore,
-        // Breakdown for modal
+        total_count: totalCount,
         breakdown: {
-          checklist: { total: Number(score?.checklist_total || 0), done: Number(score?.checklist_done || 0) },
-          maintenance: { total: Number(score?.maintenance_total || 0), done: Number(score?.maintenance_done || 0) },
-          housekeeping: { total: Number(score?.housekeeping_total || 0), done: Number(score?.housekeeping_done || 0) }
+          checklist: { total: Number(row.checklist_total || 0), done: Number(row.checklist_done || 0) },
+          maintenance: { total: Number(row.maintenance_total || 0), done: Number(row.maintenance_done || 0) },
+          housekeeping: { total: Number(row.housekeeping_total || 0), done: Number(row.housekeeping_done || 0) }
         }
       };
     });
 
-    mergedData.sort((a, b) => {
-      const divA = (a.division || '').toLowerCase();
-      const divB = (b.division || '').toLowerCase();
-      if (divA !== divB) return divA.localeCompare(divB);
-      const deptA = (a.department || '').toLowerCase();
-      const deptB = (b.department || '').toLowerCase();
-      if (deptA !== deptB) return deptA.localeCompare(deptB);
-      return (a.name || '').localeCompare(b.name || '');
-    });
-    const totalCount = allUsers.length;
-
-    return res.json(mergedData.map(d => ({ ...d, total_count: totalCount })));
+    return res.json(mergedData);
 
   } catch (err) {
     console.error("🔥 STAFF TASKS ERROR →", err);

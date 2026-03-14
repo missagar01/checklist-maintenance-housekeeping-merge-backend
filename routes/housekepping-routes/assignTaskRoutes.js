@@ -3,7 +3,33 @@ import { assignTaskController } from '../../controllers/housekepping-controller/
 import { validateBody } from '../../middleware/validate.js';
 import { assignTaskSchema, updateAssignTaskSchema } from '../../models/assignTask.js';
 import { fileURLToPath } from "url";
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
+// ES MODULE FIX — recreate __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Use project-level uploads directory
+const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const ext = path.extname(file.originalname);
+    cb(null, `${unique}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
+});
 
 const router = Router();
 // Require a valid token for all assignment routes; per-role filtering is handled inside controllers
@@ -73,6 +99,7 @@ router.post('/generate/delete', assignTaskController.deleteBulk);
 router
   .route('/generate/confirm/bulk')
   .post(
+    upload.none(),
     assignTaskController.confirmAttachmentBulk
   );
 
@@ -80,6 +107,7 @@ router
 router
   .route('/generate/:id/confirm')
   .post(
+    upload.single('image'),
     assignTaskController.confirmAttachment
   )
 
@@ -87,10 +115,11 @@ router
   .route('/generate/:id')
   .get(assignTaskController.getById)
   .patch(
+    upload.single('image'),
     normalizeBody,
     validateBody(updateAssignTaskSchema),
     assignTaskController.update
   )
-  .delete(assignTaskController.remove);
+  .delete(upload.none(), assignTaskController.remove);
 
 export { router as assignTaskRoutes };

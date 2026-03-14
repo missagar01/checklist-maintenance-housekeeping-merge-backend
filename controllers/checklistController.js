@@ -16,8 +16,8 @@ export const getPendingChecklist = async (req, res) => {
 
     // ⭐ ADMIN ROLE CHECK (CASE-INSENSITIVE)
     if ((role && role.toLowerCase().includes("admin")) || (username && username.toLowerCase() === "admin")) {
-      // Admin sees strictly today's unsubmitted tasks in the Pending tab for all users
-      where = `submission_date IS NULL AND DATE(task_start_date) = CURRENT_DATE`;
+      // Admin sees unsubmitted tasks in the Pending tab for all users (including overdue)
+      where = `submission_date IS NULL AND DATE(task_start_date) <= CURRENT_DATE`;
     } else {
       // Normal users see only their own tasks that they haven't submitted yet, and only those scheduled till today
       where = `submission_date IS NULL AND DATE(task_start_date) <= CURRENT_DATE `;
