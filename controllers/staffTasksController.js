@@ -112,18 +112,18 @@ export const getStaffTasks = async (req, res) => {
           SELECT u.user_name AS doer, c.status, 'checklist' AS source
           FROM public.checklist c
           JOIN filtered_users u ON c.name = u.user_name
-          WHERE c.task_start_date::date >= $1::date
-            AND c.task_start_date::date <  $2::date
-            AND c.task_start_date::date <= CURRENT_DATE
+          WHERE c.task_start_date >= $1::timestamp
+            AND c.task_start_date <  $2::timestamp
+            AND c.task_start_date <= CURRENT_TIMESTAMP
 
           UNION ALL
 
           SELECT u.user_name AS doer, m.task_status AS status, 'maintenance' AS source
           FROM public.maintenance_task_assign m
           JOIN filtered_users u ON m.doer_name = u.user_name
-          WHERE m.task_start_date::date >= $1::date
-            AND m.task_start_date::date <  $2::date
-            AND m.task_start_date::date <= CURRENT_DATE
+          WHERE m.task_start_date >= $1::date
+            AND m.task_start_date <  $2::date
+            AND m.task_start_date <= CURRENT_DATE
 
           UNION ALL
 
@@ -135,9 +135,9 @@ export const getStaffTasks = async (req, res) => {
               )
           ) AS hod_name
           JOIN filtered_users u ON trim(hod_name) = u.user_name
-          WHERE a.task_start_date::date >= $1::date
-            AND a.task_start_date::date <  $2::date
-            AND a.task_start_date::date <= CURRENT_DATE
+          WHERE a.task_start_date >= $1::timestamptz
+            AND a.task_start_date <  $2::timestamptz
+            AND a.task_start_date <= CURRENT_TIMESTAMP
       ),
       summary AS (
           SELECT
@@ -188,7 +188,7 @@ export const getStaffTasks = async (req, res) => {
     // 3. Sort all data
     allRows.sort((a, b) => {
       let valA, valB;
-      
+
       if (sortBy === 'score' || sortBy === 'completion_score') {
         valA = Number(a.completion_score || 0);
         valB = Number(b.completion_score || 0);
@@ -206,10 +206,10 @@ export const getStaffTasks = async (req, res) => {
 
       if (valA < valB) return sortOrder === 'desc' ? 1 : -1;
       if (valA > valB) return sortOrder === 'desc' ? -1 : 1;
-      
+
       // Secondary sort by name
       if (sortBy !== 'name') {
-          return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+        return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
       }
       return 0;
     });
@@ -298,9 +298,9 @@ export const exportAllStaffTasks = async (req, res) => {
           SELECT u.division, u.department, u.user_name AS doer, u.employee_id, c.status
           FROM public.checklist c
           JOIN public.users u ON c.name = u.user_name
-          WHERE c.task_start_date::date >= $1::date
-            AND c.task_start_date::date <  $2::date
-            AND c.task_start_date::date <= CURRENT_DATE
+          WHERE c.task_start_date >= $1::timestamp
+            AND c.task_start_date <  $2::timestamp
+            AND c.task_start_date <= CURRENT_TIMESTAMP
             AND u.user_name <> 'Sheelesh Marele'
             ${deptCondition} ${divCondition} ${staffCondition}
 
@@ -309,9 +309,9 @@ export const exportAllStaffTasks = async (req, res) => {
           SELECT u.division, u.department, u.user_name AS doer, u.employee_id, m.task_status AS status
           FROM public.maintenance_task_assign m
           JOIN public.users u ON m.doer_name = u.user_name
-          WHERE m.task_start_date::date >= $1::date
-            AND m.task_start_date::date <  $2::date
-            AND m.task_start_date::date <= CURRENT_DATE
+          WHERE m.task_start_date >= $1::date
+            AND m.task_start_date <  $2::date
+            AND m.task_start_date <= CURRENT_DATE
             AND u.user_name <> 'Sheelesh Marele'
             ${deptCondition} ${divCondition} ${staffCondition}
 
@@ -325,9 +325,9 @@ export const exportAllStaffTasks = async (req, res) => {
               )
           ) AS hod_name
           JOIN public.users u ON trim(hod_name) = u.user_name
-          WHERE a.task_start_date::date >= $1::date
-            AND a.task_start_date::date <  $2::date
-            AND a.task_start_date::date <= CURRENT_DATE
+          WHERE a.task_start_date >= $1::timestamptz
+            AND a.task_start_date <  $2::timestamptz
+            AND a.task_start_date <= CURRENT_TIMESTAMP
             AND u.user_name <> 'Sheelesh Marele'
             ${deptCondition} ${divCondition} ${staffCondition}
       ),

@@ -15,20 +15,25 @@ export const getUniqueDepartments = async (req, res) => {
 
     if (user.rows[0].role === "admin") {
       const result = await pool.query(`
-        SELECT DISTINCT department
+        SELECT DISTINCT department, division
         FROM users
-        WHERE department IS NOT NULL
+        WHERE department IS NOT NULL AND department <> ''
+          AND division IS NOT NULL AND division <> ''
         ORDER BY department ASC
       `);
-      return res.json(result.rows.map(r => r.department));
+      return res.json(result.rows);
     }
 
     const result = await pool.query(
-      `SELECT DISTINCT department FROM users WHERE LOWER(department)=LOWER($1)`,
+      `SELECT DISTINCT department, division 
+       FROM users 
+       WHERE LOWER(department)=LOWER($1)
+         AND department IS NOT NULL AND department <> ''
+         AND division IS NOT NULL AND division <> ''`,
       [user.rows[0].user_access]
     );
 
-    return res.json(result.rows.map(r => r.department));
+    return res.json(result.rows);
   } catch (e) {
     console.error(e);
     res.status(500).send("Server Error");
@@ -41,7 +46,7 @@ export const getUniqueDivisions = async (req, res) => {
     const result = await pool.query(`
       SELECT DISTINCT division
       FROM users
-      WHERE division IS NOT NULL
+      WHERE division IS NOT NULL AND division <> ''
       ORDER BY division ASC
     `);
     res.json(result.rows.map(r => r.division));
@@ -57,7 +62,7 @@ export const getUniqueGivenBy = async (req, res) => {
     const result = await pool.query(`
       SELECT DISTINCT given_by 
       FROM users 
-      WHERE given_by IS NOT NULL
+      WHERE given_by IS NOT NULL AND given_by <> ''
       ORDER BY given_by ASC
     `);
     res.json(result.rows.map(r => r.given_by));
@@ -77,6 +82,7 @@ export const getUniqueDoerNames = async (req, res) => {
        FROM users 
        WHERE status='active'
          AND LOWER(user_access) = LOWER($1)
+         AND user_name IS NOT NULL AND user_name <> ''
          AND user_name <> 'admin'
        ORDER BY user_name ASC`,
       [department]
