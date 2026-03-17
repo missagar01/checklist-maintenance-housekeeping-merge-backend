@@ -501,6 +501,15 @@ class AssignTaskRepository {
       sql += ` AND (LOWER(name) = LOWER($${params.length}) OR LOWER(doer_name2) = LOWER($${params.length}))`;
     }
 
+    if (Object.prototype.hasOwnProperty.call(options, 'attachment')) {
+      if (options.attachment === null) {
+        sql += ` AND attachment IS NULL`;
+      } else {
+        params.push(options.attachment);
+        sql += ` AND attachment = $${params.length}`;
+      }
+    }
+
     sql += ' ORDER BY task_start_date DESC';
 
     const hasLimit = Number.isInteger(options.limit) && options.limit > 0;
@@ -600,6 +609,14 @@ class AssignTaskRepository {
     if (options.assignedTo) {
       params.push(options.assignedTo);
       sql += ` AND (LOWER(name) = LOWER($${params.length}) OR LOWER(doer_name2) = LOWER($${params.length}))`;
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'attachment')) {
+      if (options.attachment === null) {
+        sql += ` AND attachment IS NULL`;
+      } else {
+        params.push(options.attachment);
+        sql += ` AND attachment = $${params.length}`;
+      }
     }
 
     const result = await query(sql, params);

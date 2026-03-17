@@ -534,7 +534,8 @@ const assignTaskController = {
         department,
         assignedTo,
         startDate: req.query.startDate,
-        endDate: req.query.endDate
+        endDate: req.query.endDate,
+        attachment: req.query.unconfirmed === 'true' ? null : req.query.attachment
       });
       const payload = {
         items,
@@ -571,9 +572,14 @@ const assignTaskController = {
 
 
       const attachmentValue = extractAttachment(body, req.query);
-      payload.attachment = attachmentValue !== undefined && attachmentValue !== null
-        ? String(attachmentValue)
-        : 'confirmed';
+      if (attachmentValue !== undefined && attachmentValue !== null) {
+        payload.attachment = String(attachmentValue);
+      }
+
+      const submissionDateValue = body.submission_date || req.query.submission_date;
+      if (submissionDateValue !== undefined && submissionDateValue !== null) {
+        payload.submission_date = String(submissionDateValue);
+      }
 
       // Prefer explicit remark key if present; otherwise accept common variants.
       const explicitRemark = Object.prototype.hasOwnProperty.call(body, 'remark')
@@ -633,11 +639,15 @@ const assignTaskController = {
 
 
       const attachmentValue = extractAttachment(body, req.query);
-      const payload = {
-        attachment: attachmentValue !== undefined && attachmentValue !== null
-          ? String(attachmentValue)
-          : 'confirmed'
-      };
+      const payload = {};
+      if (attachmentValue !== undefined && attachmentValue !== null) {
+        payload.attachment = String(attachmentValue);
+      }
+
+      const submissionDateValue = body.submission_date || req.query.submission_date;
+      if (submissionDateValue !== undefined && submissionDateValue !== null) {
+        payload.submission_date = String(submissionDateValue);
+      }
 
       const explicitRemark = Object.prototype.hasOwnProperty.call(body, 'remark')
         ? body.remark

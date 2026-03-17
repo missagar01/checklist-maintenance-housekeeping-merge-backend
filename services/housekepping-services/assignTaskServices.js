@@ -365,9 +365,18 @@ class AssignTaskService {
   }
 
   async historyWithTotal(options = {}) {
-    // Pass null as cutoff so findHistory/countHistory default to current month filter
-    const items = await assignTaskRepository.findHistory(null, options);
-    const total = await assignTaskRepository.countHistory(null, options);
+    // If no cutoff provided, repo defaults to current month.
+    // However, if we want "till today date" and its NOT monthly,
+    // we might need a cutoff. But history usually means past.
+    // The user said "till today date".
+    let cutoff = null;
+    if (options.attachment === null) {
+      cutoff = new Date();
+      cutoff.setHours(23, 59, 59, 999);
+    }
+
+    const items = await assignTaskRepository.findHistory(cutoff, options);
+    const total = await assignTaskRepository.countHistory(cutoff, options);
     return { items, total };
   }
 
