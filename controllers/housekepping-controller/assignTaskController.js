@@ -77,6 +77,19 @@ const parseDepartments = (value) => {
 };
 
 const resolveDepartment = (req) => {
+  // Try to get page access from header (sent from frontend axiosInstance)
+  const pageAccessRaw = req.headers['x-page-access'] || '';
+  const pageAccess = decodeHeader(pageAccessRaw);
+  const canVerifyHousekeeping = pageAccess.includes('housekeeping-verify');
+
+  // If user has housekeeping-verify permission, bypass department filter (return null)
+  if (canVerifyHousekeeping) {
+    logger.info({
+      note: 'User has housekeeping-verify permission - bypassing department filter to show ALL data'
+    }, 'resolveDepartment - Housekeeping Verify Permission');
+    return null;
+  }
+
   // Express lowercases all header names, so 'x-user-role' becomes 'x-user-role'
   // Try both lowercase and original case for compatibility
   const role = req.headers['x-user-role'] || req.headers['X-User-Role'] || req.query?.role || '';
@@ -524,19 +537,32 @@ const assignTaskController = {
       const effectiveOffset = page && limit ? (page - 1) * limit : offset;
       const department = resolveDepartment(req);
 
-      // ✅ USER RESTRICTION FIX (Admins see all, users see their own)
-      const isAdmin = (req.user?.role?.toLowerCase().includes("admin")) || (req.user?.username?.toLowerCase() === "admin");
-      const assignedTo = isAdmin ? req.query.assignedTo : req.user?.username;
+      // ✅ USER RESTRICTION FIX (Authorized users see all unconfirmed tasks for verification)
+      const pageAccessRaw = req.headers['x-page-access'] || '';
+      const pageAccess = decodeHeader(pageAccessRaw);
+      const canVerifyHousekeeping = pageAccess.includes('housekeeping-verify');
 
-      const { items, total } = await assignTaskService.historyWithTotal({
+      const isUnconfirmedReq = req.query.unconfirmed === 'true';
+      const isAdmin = (req.user?.role?.toLowerCase().includes("admin")) || (req.user?.username?.toLowerCase() === "admin") || canVerifyHousekeeping;
+      const assignedTo = (isAdmin || isUnconfirmedReq) ? req.query.assignedTo : req.user?.username;
+
+      const historyOptions = {
         limit,
         offset: effectiveOffset,
         department,
         assignedTo,
         startDate: req.query.startDate,
         endDate: req.query.endDate,
-        attachment: req.query.unconfirmed === 'true' ? null : req.query.attachment
-      });
+      };
+
+      if (isUnconfirmedReq) {
+        historyOptions.attachment = null;
+      } else if (req.query.attachment !== undefined && req.query.attachment !== null) {
+        historyOptions.attachment = req.query.attachment;
+      }
+
+      const { items, total } = await assignTaskService.historyWithTotal(historyOptions);
+
       const payload = {
         items,
         total,
